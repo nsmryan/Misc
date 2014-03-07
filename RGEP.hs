@@ -10,6 +10,7 @@ import Data.List.Split
 import Data.Bits
 import Data.Function
 import Data.Random
+import Data.Conduit
 import qualified Data.Traversable as T
 import qualified Data.Foldable as F
 import qualified Data.Vector as V
@@ -21,6 +22,7 @@ import Debug.Trace
 import Control.Arrow
 import Control.Applicative
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Primitive
 import Control.Monad.Primitive.Class
@@ -34,6 +36,7 @@ import Rotation
 import Selection
 import PBIL
 import RMHC
+import Evaluation
 
 
 --split pure and impure aspects of operators
@@ -158,13 +161,6 @@ testRMHC = do
   printf "fitness = %f\n" fit
 
 
-{- Evaluaton -}
-evaluation :: (Functor m, MonadRandom m) =>
-  (a -> m Double) ->
-  S.Seq a ->
-  m (S.Seq (a, Double))
-evaluation eval pop = S.zip pop <$> T.mapM eval pop
-
 {- Genetic Algorithms -}
 geneticAlgorithm :: (Functor m, MonadRandom m) =>
   Int -> -- Population size
@@ -190,10 +186,20 @@ geneticAlgorithm ps is gens pm pc eval = do
 {- Elitism -}
 elitism :: (MonadRandom m) =>
   Int ->
-  (Pop (Ind a, Double) -> m (Pop (Ind a))) -> 
-  Pop (Ind a, Double) ->
-  m (Pop (Ind a))
+  (Pop (a, Double) -> m (Pop a)) -> 
+  Pop (a, Double) ->
+  m (Pop a)
 elitism k select pop = do
+  let (elite, common) = S.splitAt k $ S.sortBy (compare `on` snd) pop
+  selected <- select common
+  return (fmap fst elite S.>< selected)
+
+elitismConduit ::
+  Int ->
+  (Pop (a, Double) -> HealIO (Pop a)) ->
+  Pop (a, Double) ->
+  HealIO (Pop a)
+elitismConduit k select pop = do
   let (elite, common) = S.splitAt k $ S.sortBy (compare `on` snd) pop
   selected <- select common
   return (fmap fst elite S.>< selected)
@@ -227,4 +233,32 @@ rgep is ps ops pm pr pc1 pc2 pt gens def eval = do
         loop (pred gens) popRotated
     in
       loop gens pop
+
+{- RGEP Conduit -}
+rgepConduit ::
+  Int -> --individual size
+  Int -> --population size
+  [Op a] -> --operators
+  Prob -> -- pm
+  Prob -> -- pr
+  Prob -> -- pc1
+  Prob -> -- pc2
+  Prob -> -- tournament selection prob
+  a -> -- default value
+  (a -> IO Double) ->
+  ConduitM () (Result Pop32) IO ()
+rgepConduit is ps ops pm pr pc1 pc2 pt def eval = do
+  let bits = bitsUsed ops
+      decoder = decode ops
+      loop pop = do
+        pop' <- evaluationConduit (eval . rgepRun decoder def) pop >>=
+                elitismConduit 1 (stochasticTournamentConduit pt) >>=
+                crossoverConduit pc1 >>=
+                multipointCrossoverConduit pc2 2 >>=
+                pointMutationConduit pm is 1 >>=
+                rotationConduit pr
+        yield $ DataResult pop'
+        loop pop'
+  pop <- liftIO $ pop32 ps is bits
+  loop pop
 

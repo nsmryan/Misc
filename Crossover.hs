@@ -3,6 +3,11 @@ module Crossover where
 import qualified Data.Sequence as S
 import Data.Random
 import Data.List
+import Data.Conduit
+
+import System.Log.Logger
+
+import Control.Monad.IO.Class
 
 import Control.Monad
 
@@ -18,7 +23,7 @@ crossPair crossPoint (a, b) =
 unpair as = (fmap fst as, fmap snd as)
 
 crossoverPure :: 
-  [(Int, Int)] -> Pop32 -> Pop32
+  [(Int, Int)] -> Pop (Ind a) -> Pop (Ind a)
 crossoverPure crossInfo population = let
   (top, bottom) = S.splitAt midPoint population
   midPoint = S.length population `div` 2
@@ -28,7 +33,7 @@ crossoverPure crossInfo population = let
     in firstHalf S.>< secondHalf
 
 crossover :: (MonadRandom m, Functor m) =>
-  Prob -> Pop32 -> m Pop32
+  Prob -> Pop (Ind a) -> m (Pop (Ind a))
 crossover p population = do
   let totalLength = S.length population `div` 2
       len = S.length $ population `S.index` 0
@@ -58,7 +63,7 @@ multicrossPair ixs (a, b) =
   in exchange (splits points a) (splits points b)
 
 multipointCrossoverPure ::
-  [(Int, [Int])] -> Pop32 -> Pop32
+  [(Int, [Int])] -> Pop (Ind a) -> Pop (Ind a)
 multipointCrossoverPure crossData pop = let
   pairs = foldInHalf pop
   result = applyOverIndices multicrossPair crossData pairs
@@ -68,8 +73,8 @@ multipointCrossoverPure crossData pop = let
 multipointCrossover :: (Functor m, MonadRandom m) =>
   Prob -> -- probability of crossover
   Int -> --number of cross points
-  Pop32 -> --population to crossover
-  m Pop32
+  Pop (Ind a) -> --population to crossover
+  m (Pop (Ind a))
 multipointCrossover pc points pop = do
   let indLen = S.length $ pop `S.index` 0
       popLen = S.length pop
@@ -77,3 +82,25 @@ multipointCrossover pc points pop = do
   points <- replicateM popLen $ replicateM points (fromRange indLen)
   let crossData = zip indices points
   return $ multipointCrossoverPure crossData pop
+
+{- Conduit -}
+multipointCrossoverConduit ::
+  Prob -> -- probability of crossover
+  Int -> --number of cross points
+  Pop (Ind a) -> --population to crossover
+  HealIO (Pop (Ind a))
+multipointCrossoverConduit pc points pop = do
+  yield $ LogResult DEBUG "Multipoint Crossover started"
+  pop' <- liftIO $ multipointCrossover pc points pop
+  yield $ LogResult DEBUG "Multipoint Crossover ended"
+  return pop'
+
+crossoverConduit :: 
+  Prob ->
+  Pop (Ind a) ->
+  HealIO (Pop (Ind a))
+crossoverConduit pc pop = do
+  yield $ LogResult DEBUG "Crossover started"
+  pop' <- liftIO $ crossover pc pop
+  yield $ LogResult DEBUG "Crossover ended"
+  return pop'

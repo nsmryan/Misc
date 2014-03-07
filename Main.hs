@@ -6,6 +6,7 @@ import qualified Data.Foldable as F
 import Data.Function
 import Data.Bits
 import Data.Word
+import Data.Conduit
 
 import Text.Printf
 
@@ -13,10 +14,14 @@ import System.Remote.Monitoring
 
 import Network
 
+import Control.Monad
+import qualified Control.Concurrent as Con
 
 import RGEP
 import Types
 import UtilsRandom
+import Evaluation
+import Conduit
 
 
 testDecode = do
@@ -88,6 +93,20 @@ testRGEP = do
   printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
   printf "fitness = %f\n" fit
 
+unitSource = forever $ yield ()
+testRGEPConduit server = do
+  let ops = [plusOp, timesOp, oneTerm, twoTerm, zeroTerm] :: [Op Double]
+      decoder = decode ops
+      gens = 100
+  unitSource $= rgepConduit 100 100 ops 0.01 0.1 0.6 0.6 0.75 0 return $$ nGenerations "log" gens server
+  --population <- runRandIO $ evaluation (return . rgepRun decoder 0) pop
+  --let (ind, fit) = F.maximumBy (compare `on` snd) population
+  --printf "ind = %s\n" (show ind)
+  --printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
+  --printf "fitness = %f\n" fit
+
 main = do
-  withSocketsDo $ forkServer "localhost" 8000
-  testRGEP
+  server <- forkServer "localhost" 8000
+  let serverID = serverThreadId server
+  testRGEPConduit server
+  Con.killThread serverID

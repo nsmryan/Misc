@@ -7,6 +7,11 @@ import Data.Function
 import Data.List
 import qualified Data.Traversable as T
 import qualified Data.Foldable as F
+import Data.Conduit
+
+import System.Log.Logger
+
+import Control.Monad.IO.Class
 
 import Control.Monad
 import Control.Applicative
@@ -40,6 +45,16 @@ tournamentSelection size population = let len = S.length population in
   do indices <- replicateM len $ generateTournament size len
      return $ tournamentSelectionPure indices population
 
+tournamentSelectionConduit :: 
+  Int ->
+  Pop (Ind a, Double) ->
+  HealIO (Pop (Ind a))
+tournamentSelectionConduit size pop = do
+  yield $ LogResult DEBUG "Tournament Selection started"
+  pop' <- liftIO $ tournamentSelection size pop
+  yield $ LogResult DEBUG "Tournament Selection ended"
+  return pop'
+
 {- Stochastic Tournament Selection -}
 ensure (ind, ind') = (higher, lower) where
   higher = maxBy snd ind ind'
@@ -51,6 +66,7 @@ choose p pair = let (a, b) = ensure pair in do
     then a
     else b
 
+--TODO split out pure and impure parts
 stochasticTournamentPure ::
   [Bool] -> Pop (a, Double) -> Pop a
 stochasticTournamentPure winners population = undefined
@@ -67,3 +83,15 @@ stochasticTournament prob population = do
   let chosen1 = fmap (vectPop V.!) choices1
   winners <- T.traverse (choose prob) (zip chosen0 chosen1)
   return . fmap fst . S.fromList $ winners
+
+{- Conduit -}
+stochasticTournamentConduit ::
+  Prob ->
+  Pop (a, Double) -> 
+  HealIO (Pop a)
+stochasticTournamentConduit prob pop = do
+  yield $ LogResult DEBUG "Stochastic Tournament Selection started"
+  pop' <- liftIO $ stochasticTournament prob pop
+  yield $ LogResult DEBUG "Stochastic Tournament Selection ended"
+  return pop'
+
