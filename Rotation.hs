@@ -4,8 +4,6 @@ import qualified Data.Sequence as S
 import Data.Random
 import Data.Conduit
 
-import System.Log.Logger
-
 import Control.Monad.IO.Class
 
 import Control.Monad
@@ -20,11 +18,12 @@ rotIndividual rotationPoint ind = let
    in bottom S.>< top
 
 rotationPure ::
-  [(Int, Int)] ->
+  [Int] ->
+  [Int] ->
   (Pop (Ind a)) ->
   (Pop (Ind a))
-rotationPure rotPoints pop =
-  applyOverIndices rotIndividual rotPoints pop
+rotationPure indices rotationPoints pop =
+  applyOn 1 (map (const . rotIndividual) rotationPoints) indices pop
 
 rotation :: (Functor m, MonadRandom m) =>
   Prob -> 
@@ -36,17 +35,11 @@ rotation pr pop = let
     in do
       indices <- generateIndices popLen pr
       rotationPoints <- replicateM (length indices) (fromRange indLen)
-      let rotationData = zip indices rotationPoints
-      return $ rotationPure rotationData pop
+      return $ rotationPure indices rotationPoints pop
 
 {- Conduit -}
 rotationConduit ::
   Prob -> 
-  Pop (Ind a) ->
-  HealIO (Pop (Ind a))
-rotationConduit prob pop = do
-  yield $ LogResult DEBUG "Rotation started"
-  pop' <- liftIO $ rotation prob pop
-  yield $ LogResult DEBUG "Rotation ended"
-  return pop'
+  Conduit (Pop (Ind a)) IO (Pop (Ind a))
+rotationConduit prob = awaitForever (liftIO . rotation prob)
 

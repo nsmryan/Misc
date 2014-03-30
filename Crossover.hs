@@ -5,8 +5,6 @@ import Data.Random
 import Data.List
 import Data.Conduit
 
-import System.Log.Logger
-
 import Control.Monad.IO.Class
 
 import Control.Monad
@@ -23,12 +21,12 @@ crossPair crossPoint (a, b) =
 unpair as = (fmap fst as, fmap snd as)
 
 crossoverPure :: 
-  [(Int, Int)] -> Pop (Ind a) -> Pop (Ind a)
-crossoverPure crossInfo population = let
+  [Int] -> [Int] -> Pop (Ind a) -> Pop (Ind a)
+crossoverPure crossPoints crossPoint population = let
   (top, bottom) = S.splitAt midPoint population
   midPoint = S.length population `div` 2
   pairs = S.zip top bottom
-  crossedPairs = applyOverIndices crossPair crossInfo pairs
+  crossedPairs = applyOn 1 (map (const . crossPair) crossPoints) crossPoints pairs
   (firstHalf, secondHalf) = unpair crossedPairs
     in firstHalf S.>< secondHalf
 
@@ -39,8 +37,7 @@ crossover p population = do
       len = S.length $ population `S.index` 0
   indices <- generateIndices totalLength p
   crossPoints <- replicateM (length indices) $ fromRange len
-  let crossInfo = zip indices crossPoints
-  return $ crossoverPure crossInfo population
+  return $ crossoverPure indices crossPoints population
 
 
 {- Multipoint crossover -}
@@ -63,10 +60,10 @@ multicrossPair ixs (a, b) =
   in exchange (splits points a) (splits points b)
 
 multipointCrossoverPure ::
-  [(Int, [Int])] -> Pop (Ind a) -> Pop (Ind a)
-multipointCrossoverPure crossData pop = let
+  [Int] -> [[Int]] -> Pop (Ind a) -> Pop (Ind a)
+multipointCrossoverPure crossIndices crossPoints pop = let
   pairs = foldInHalf pop
-  result = applyOverIndices multicrossPair crossData pairs
+  result = applyOn 1 (map (const . multicrossPair) crossPoints) crossIndices pairs
   (firstHalf, secondHalf) = unpair result
   in firstHalf S.>< secondHalf
 
@@ -80,27 +77,17 @@ multipointCrossover pc points pop = do
       popLen = S.length pop
   indices <- generateIndices (popLen `div` 2) pc
   points <- replicateM popLen $ replicateM points (fromRange indLen)
-  let crossData = zip indices points
-  return $ multipointCrossoverPure crossData pop
+  return $ multipointCrossoverPure indices points pop
 
 {- Conduit -}
 multipointCrossoverConduit ::
   Prob -> -- probability of crossover
   Int -> --number of cross points
-  Pop (Ind a) -> --population to crossover
-  HealIO (Pop (Ind a))
-multipointCrossoverConduit pc points pop = do
-  yield $ LogResult DEBUG "Multipoint Crossover started"
-  pop' <- liftIO $ multipointCrossover pc points pop
-  yield $ LogResult DEBUG "Multipoint Crossover ended"
-  return pop'
+  Conduit (Pop (Ind a)) IO (Pop (Ind a))
+multipointCrossoverConduit pc points = awaitForever (liftIO . multipointCrossover pc points)
 
 crossoverConduit :: 
   Prob ->
-  Pop (Ind a) ->
-  HealIO (Pop (Ind a))
-crossoverConduit pc pop = do
-  yield $ LogResult DEBUG "Crossover started"
-  pop' <- liftIO $ crossover pc pop
-  yield $ LogResult DEBUG "Crossover ended"
-  return pop'
+  Conduit (Pop (Ind a)) IO (Pop (Ind a))
+crossoverConduit pc = awaitForever (liftIO . crossover pc)
+

@@ -20,7 +20,7 @@ rmhc is bits gens mutRate eval = do
   fitness <- eval initGenes
   let loop 0 ind = return ind
       loop n ind@(genes, fitness) = do
-        genes' <- applyRandomly mutateLocus mutRate (bits*is) genes
+        genes' <- applyRandomly (repeat mutateLocus) mutRate (bits*is) genes
         fitness' <- eval genes'
         let ind' = (genes', fitness)
         loop (pred n) (maxBy snd ind' ind)

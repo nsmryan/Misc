@@ -24,8 +24,6 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
-import Control.Monad.Primitive
-import Control.Monad.Primitive.Class
 import Control.Monad.Trans.State.Lazy
 
 import Types
@@ -52,6 +50,7 @@ mkOp2 name f = Op name (Arity 2 1) (firstTwo f) where firstTwo f (a:a':as) = a `
 mkTerm name v = Op name (Arity 0 1) (v:)
 
 -- Plain arithmatic operations
+plusOp :: Op Double
 plusOp = mkOp2 "+"    (+)
 minusOp = mkOp2 "-"   (-)
 timesOp = mkOp2 "*"   (*)
@@ -109,11 +108,11 @@ rgepRun decoder a as = runProgramWithDefault a . F.toList . smap decoder $ as
 {- Express raw bits -}
 
 bitsUsed ops = let (terms, nonterms) = splitSymbols ops in
-  if length terms > 0 && length nonterms > 0
-    then 1 + max (bitsRequired (length terms)) (bitsRequired (length nonterms))
+  if (not $ null terms) && (not $ null nonterms)
+    then max (bitsRequired terms) (bitsRequired nonterms)
     else error "There must be at least one terminal symbol and one nonterminal symbol"
 
-bitsRequired n = ceiling $ logBase 2 (fromIntegral n)
+bitsRequired ops = 1 + (ceiling $ logBase 2 (fromIntegral $ length ops))
 
 splitSymbols ops = (filter ((==0) . inputs . arity) ops, filter ((/=0) . inputs . arity) ops)
 
@@ -137,7 +136,7 @@ pack :: [Bool] -> Word32
 pack bs = foldl (\ w b -> (w `shiftL` 1) .|. b2i b) 0 bs
 
 collect ::  Int -> S.Seq Bool -> [Word32]
-collect n bs = pack <$> (splitEvery n $ F.toList bs)
+collect n bs = pack <$> (chunksOf n $ F.toList bs)
 
 rgepPBIL ops ps is gens learn neglearn mutRate mutShift eval =
   pbil ps bs gens learn neglearn mutRate mutShift (collect bits) eval where
@@ -194,15 +193,20 @@ elitism k select pop = do
   selected <- select common
   return (fmap fst elite S.>< selected)
 
+conduit =&&&= conduit' = do
+  (a:b:[]) <- sequenceConduits [conduit, conduit']
+  yield (a, b)
+  conduit =&&&= conduit' 
+
 elitismConduit ::
   Int ->
-  (Pop (a, Double) -> HealIO (Pop a)) ->
-  Pop (a, Double) ->
-  HealIO (Pop a)
-elitismConduit k select pop = do
+  (Pop (a, Double) -> IO (Pop a)) -> 
+  Conduit (Pop (a, Double)) IO (Pop a)
+elitismConduit k select = awaitForever $ \ pop -> do
   let (elite, common) = S.splitAt k $ S.sortBy (compare `on` snd) pop
-  selected <- select common
-  return (fmap fst elite S.>< selected)
+  selected <- liftIO $ select common
+  yield (fmap fst elite S.>< selected)
+    
 
 {- RGEP -}
 rgep :: (MonadRandom m, Applicative m, Functor m) =>
@@ -246,19 +250,15 @@ rgepConduit ::
   Prob -> -- tournament selection prob
   a -> -- default value
   (a -> IO Double) ->
-  ConduitM () (Result Pop32) IO ()
+  Conduit Pop32 IO Pop32
 rgepConduit is ps ops pm pr pc1 pc2 pt def eval = do
   let bits = bitsUsed ops
       decoder = decode ops
-      loop pop = do
-        pop' <- evaluationConduit (eval . rgepRun decoder def) pop >>=
-                elitismConduit 1 (stochasticTournamentConduit pt) >>=
-                crossoverConduit pc1 >>=
-                multipointCrossoverConduit pc2 2 >>=
-                pointMutationConduit pm is 1 >>=
-                rotationConduit pr
-        yield $ DataResult pop'
-        loop pop'
-  pop <- liftIO $ pop32 ps is bits
-  loop pop
+      evaluator a = eval $ rgepRun decoder def a
+        in evaluationConduit evaluator =$=
+           elitismConduit 1 (stochasticTournament pt) =$=
+           crossoverConduit pc1 =$=
+           multipointCrossoverConduit pc2 2 =$=
+           pointMutationConduit pm is 1 =$=
+           rotationConduit pr
 

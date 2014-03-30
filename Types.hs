@@ -1,13 +1,11 @@
 module Types where
 
-import Data.Monoid
 import qualified Data.Sequence as S
 import qualified Data.Vector as V
 import Data.Word
 import Data.Random
+import Data.Monoid
 import Data.Conduit
-
-import System.Log.Logger
 
 type Prob = Double
 
@@ -49,17 +47,4 @@ type PopR = S.Seq IndR
 
 type IndBits = Int
 type PopBits = S.Seq IndBits
-
-{- Application Control Types -}
---TODO return Either String d in conduits
---MonitorResult is a bit lazy. this should be data
---that is used by a downstream monitor.
-data Result d = MonitorResult (IO ())
-              | DataResult d
-              | LogResult Priority String
-
---type Operator d = Reader Config (ConduitM () (Result d) IO d)
---IO could be MonadRandom m and allow other intepreters.
-type Heal m d = ConduitM () (Result d) m d
-type HealIO d = Heal IO d
 

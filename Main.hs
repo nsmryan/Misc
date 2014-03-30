@@ -16,6 +16,9 @@ import Network
 
 import Control.Monad
 import qualified Control.Concurrent as Con
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.State.Lazy
 
 import RGEP
 import Types
@@ -93,17 +96,22 @@ testRGEP = do
   printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
   printf "fitness = %f\n" fit
 
-unitSource = forever $ yield ()
 testRGEPConduit server = do
   let ops = [plusOp, timesOp, oneTerm, twoTerm, zeroTerm] :: [Op Double]
       decoder = decode ops
-      gens = 100
-  unitSource $= rgepConduit 100 100 ops 0.01 0.1 0.6 0.6 0.75 0 return $$ nGenerations "log" gens server
-  --population <- runRandIO $ evaluation (return . rgepRun decoder 0) pop
-  --let (ind, fit) = F.maximumBy (compare `on` snd) population
-  --printf "ind = %s\n" (show ind)
-  --printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
-  --printf "fitness = %f\n" fit
+      gens = 0
+      ps = 50
+      is = 100
+      bits = bitsUsed ops
+  population <- liftIO $ pop32 ps is bits
+  --initial <- runRandIO $ evaluation (return . rgepRun decoder 0) population
+  pop <- nGenerations gens server population (rgepConduit is ps ops 0.01 0.1 0.6 0.6 0.75 0 return)
+  population' <- runRandIO $ evaluation (return . rgepRun decoder 0) pop
+  let (ind, fit) = F.maximumBy (compare `on` snd) population'
+  printf "bits = %s\n" (show bits)
+  printf "ind = %s\n" (show ind)
+  printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
+  printf "fitness = %f\n" fit
 
 main = do
   server <- forkServer "localhost" 8000
