@@ -4,6 +4,7 @@ import Data.Random
 
 import UtilsRandom
 import Types
+import Utils
 import PointMutation
 
 {- Random Mutation Hill Climbing RGEP -}

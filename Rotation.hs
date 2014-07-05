@@ -9,6 +9,7 @@ import Control.Monad.IO.Class
 import Control.Monad
 
 import Types
+import Utils
 import UtilsRandom
 
 
@@ -23,7 +24,7 @@ rotationPure ::
   (Pop (Ind a)) ->
   (Pop (Ind a))
 rotationPure indices rotationPoints pop =
-  applyOn 1 (map (const . rotIndividual) rotationPoints) indices pop
+  applyOver (map rotIndividual rotationPoints) indices pop
 
 rotation :: (Functor m, MonadRandom m) =>
   Prob -> 

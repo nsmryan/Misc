@@ -7,6 +7,8 @@ import Data.Random
 import Data.Monoid
 import Data.Conduit
 
+import Control.Monad.State
+
 type Prob = Double
 
 {- RGEP Types -}
@@ -47,4 +49,8 @@ type PopR = S.Seq IndR
 
 type IndBits = Int
 type PopBits = S.Seq IndBits
+
+type Supply s = State s
+type SupplyT s m a = StateT s m a
+
 

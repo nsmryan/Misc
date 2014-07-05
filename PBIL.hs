@@ -9,6 +9,7 @@ import qualified Data.Foldable as F
 import Control.Applicative
 
 import UtilsRandom
+import Utils
 import PointMutation
 import Types
 

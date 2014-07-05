@@ -2,19 +2,24 @@
 module Conduit where
 
 import qualified Data.Sequence as S
-import Data.Conduit
+import Data.Conduit as C
 import Data.Conduit.TMChan
 import Data.Void
+import Data.Traversable as T
 
 import System.Remote.Monitoring
 import System.Remote.Counter
 
 import Control.Monad.IO.Class
 import Control.Concurrent.STM.TBMChan
+import Control.Applicative
 
 import GHC.Conc
 
 import Types
+import Crossover
+import Evaluation
+import PointMutation
 
 
 nGenerations gens server initial conduit = do
@@ -39,4 +44,30 @@ nGenerations gens server initial conduit = do
                  liftIO . atomically . writeTBMChan chan $ initial
                  loop gens' a
     in sourceTBMChan chan $$ loop gens initial 
+
+{- Crossover Conduit -}
+multipointCrossoverConduit ::
+  Prob -> -- probability of crossover
+  Int -> --number of cross points
+  Conduit (Pop (Ind a)) IO (Pop (Ind a))
+multipointCrossoverConduit pc points = awaitForever (liftIO . multipointCrossover pc points)
+
+crossoverConduit :: 
+  Prob ->
+  Conduit (Pop (Ind a)) IO (Pop (Ind a))
+crossoverConduit pc = awaitForever (liftIO . crossover pc)
+
+
+{- Evaluaton Conduit -}
+evaluationConduit :: 
+  (a -> IO Double) ->
+  Conduit (Pop a) IO (Pop (a, Double))
+evaluationConduit eval = awaitForever $ \ pop -> do
+  pop' <- liftIO $ S.zip pop <$> T.mapM eval pop
+  C.yield pop'
+
+{- Point Mutation Conduit -}
+pointMutationConduit ::
+  Prob -> Int -> Int -> Conduit Pop32 IO Pop32
+pointMutationConduit pm is bits = awaitForever (liftIO . pointMutation pm is bits)
 

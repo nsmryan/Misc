@@ -18,15 +18,13 @@ import Control.Monad.State
 import System.Random
 
 import Types
+import Utils
 
-failuresWith p u = floor (log u / log (1 - p))
 
 uniformGeometric :: (MonadRandom m) => Double -> m Int
 uniformGeometric p = sample $ failuresWith p <$> stdUniform
 
 geo p = uniformGeometric p
-
---runRandTIO m = m
 
 runRandIO m = do
   g <- newPureMT
@@ -40,17 +38,6 @@ runRand m g = evalState m g
 fromRange :: (Enum n, Num n, Distribution Uniform n, MonadRandom m) =>
   n -> m n
 fromRange n = sample $ uniform 0 (pred n)
-
-repeatM :: (Monad m) => m a -> m [a]
-repeatM = sequence . repeat
-
-minBy f a b = if f a < f b then a else b
-maxBy :: (Ord b) => (a -> b) -> a -> a -> a
-maxBy f a b = if f a >= f b then a else b
-
-timesM :: (Monad m) => Int -> a -> (a -> m a) -> m a
-timesM i a m = foldl (>=>) return (replicate i m) $ a
-
 
 {- Generate Random population -}
 
@@ -81,40 +68,6 @@ indBits cap = fromRange cap
 popBits :: (MonadRandom m) => Int -> Int -> m PopBits
 popBits len cap = S.replicateM len $ indBits cap
 
-
-{- Efficient application of genetic operators -}
---should use mono-traversable and sequence
---variations- 
---generate indices, supply indices
---need extra data, don't need extra data
---supply extra data, generate extra data
-
-skipping :: (Monad m) => Int -> StateT [Int] m Int
-skipping n = do
-  (i:is) <- get
-  if i == 0
-    then return 0
-    else do 
-      let (skips, m) = divMod i n
-      put $ m : is
-      return $! skips
-
-takeUnder n = takeUnder' n 0 where
-  takeUnder' n acc =
-    do as <- get
-       case as of
-         [] -> return []
-         i:as' -> do
-           let acc' = i + acc
-           if acc' >= n
-             then do
-               put $ (acc' - n : as')
-               return []
-             else do
-               put as'
-               as'' <- takeUnder' n (acc'+1)
-               return $ (i : as'')
-    
 generateIndices :: (MonadRandom m) =>
   Int -> Prob -> m [Int]
 generateIndices n p = generateIndices' 0 n p where
@@ -127,38 +80,11 @@ generateIndices n p = generateIndices' 0 n p where
            is <- generateIndices' (acc'+1) n p 
            return $ i:is
 
---TODO clean up and provide a set of useful cases
-applyOn ::
-  Int ->
-  [([Int] -> a -> a)] ->
-  [Int] ->
-  S.Seq a ->
-  S.Seq a
-applyOn n fs is as = evalState (go fs as) is where
-  go (f:fs) as = do 
-    emptyList <- gets null
-    if emptyList
-      then return as
-      else do
-        i <- skipping n
-        let (top, bottom) = S.splitAt i as
-        if S.null bottom
-          then return top
-          else do
-            is <- takeUnder n
-            let a = f is $ S.index bottom 0
-            bottom' <- go fs $ S.drop 1 bottom
-            return $ top S.>< S.singleton a S.>< bottom'
-
-applyWithFunction n f = applyOn n (repeat f)
-
 applyRandomlyOverIndividuals f n dist prob as = do
   indices <- generateIndices n prob
   dataValues <- replicateM (length indices) dist
   let fs = fmap f dataValues
   return $ applyOn n fs indices as
-
-applyOverLocuses n m fs = applyOn (n*m) (repeat (applyOn m fs))
 
 applyRandomly fs p n as = do
     indices <- generateIndices n p

@@ -5,12 +5,12 @@ import Data.Word
 import Data.Bits
 import Data.Random
 import Data.Random.Lift
-import Data.Conduit
 
 import Control.Monad.IO.Class
 import Control.Monad
 
 import UtilsRandom
+import Utils
 import Types
 
 
@@ -35,11 +35,6 @@ pointMutation :: (MonadRandom m, Functor m) =>
 pointMutation pm indLength bits pop =
   do indices <- pointMutationGenerate pm indLength bits
      return $ pointMutationPure indLength bits indices pop
-
-{- Conduit -}
-pointMutationConduit ::
-  Prob -> Int -> Int -> Conduit Pop32 IO Pop32
-pointMutationConduit pm is bits = awaitForever (liftIO . pointMutation pm is bits)
 
 {- Configuration -}
 

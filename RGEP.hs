@@ -35,6 +35,7 @@ import Selection
 import PBIL
 import RMHC
 import Evaluation
+import Conduit
 
 
 --split pure and impure aspects of operators
@@ -136,7 +137,7 @@ pack :: [Bool] -> Word32
 pack bs = foldl (\ w b -> (w `shiftL` 1) .|. b2i b) 0 bs
 
 collect ::  Int -> S.Seq Bool -> [Word32]
-collect n bs = pack <$> (chunksOf n $ F.toList bs)
+collect n bs = pack <$> (splitEvery n $ F.toList bs)
 
 rgepPBIL ops ps is gens learn neglearn mutRate mutShift eval =
   pbil ps bs gens learn neglearn mutRate mutShift (collect bits) eval where
