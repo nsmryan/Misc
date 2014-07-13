@@ -1,0 +1,51 @@
+Next:
+  Generalize chart generation
+  Test GA and RGEP against random bitmap to make more fair
+
+
+Consider switching between testing each index and using the
+  applyMOn functions. The cutoff would be when the extra complexity
+  isn't worth the time it takes to generate numbers.
+
+
+Could add testing to tasty to allow getting, say, average fitness
+  from different algorithms in 100 runs.
+  Need a way to visualize, though
+
+
+Use Main to allow the different use-cases of the algorithms
+
+  
+What oppertunities exist for parallelism?
+  pipeline parallel
+  parallel operators
+  parallel algorithms
+
+
+TRGEP- Typed Robust Gene Expression Programming
+  encode arity in first bits
+  build "tree"- remove underflows and extra operators
+  process prefix- starting with result type and moving towards leaves
+                  indices are taken modulo into type-specific operator lists
+
+
+  advantages- typeful, more expressive, more uniform
+
+  how to deal with arities not give by user?
+    either build out of other operators, or index as usual
+  will we get sufficiently many terminals?
+  
+  to solve both number of terminals and extra values-
+    all arities that are not used are terminals!
+
+
+Whats the effect of high-arity operators? does it help or hurt to add, say, 3 arity ones
+  that just combine 2 arity ones?
+
+
+Type Families for configurations:
+  type family RGEPProblem problem where
+    type RGEPSolution problem :: *
+
+
+RGEP- makeTree should make the tree from an individual- return this from rgep?

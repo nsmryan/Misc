@@ -5,6 +5,7 @@ import qualified Data.Sequence as S
 import Data.Conduit as C
 import Data.Conduit.TMChan
 import Data.Void
+import Data.Function
 import Data.Traversable as T
 
 import System.Remote.Monitoring
@@ -18,17 +19,23 @@ import GHC.Conc
 
 import Types
 import Crossover
+import Rotation
 import Evaluation
 import PointMutation
+import Selection
 
 
-nGenerations gens server initial conduit = do
+conduit =&&&= conduit' = do
+  (a:b:[]) <- sequenceConduits [conduit, conduit']
+  C.yield (a, b)
+  conduit =&&&= conduit' 
+
+nGenerations gens initial conduit = do
   --logger <- liftIO $ getLogger logName
   --handler <- liftIO $ fileHandler logName DEBUG
   --liftIO $ updateGlobalLogger logName (addHandler handler)
   chan <- atomically $ newTBMChan 1
   liftIO . atomically . writeTBMChan chan $ initial
-  genCounter <- liftIO $ getCounter "Generations" server 
   let loop 0 initial = return initial
       loop gens prev = let gens' = pred gens in
         do val <- await
@@ -36,10 +43,8 @@ nGenerations gens server initial conduit = do
              Nothing -> do
                return prev
              Just a -> do
-               liftIO $ inc genCounter
                if gens' == 0
-               then do
-                 return a
+               then return a
                else do
                  liftIO . atomically . writeTBMChan chan $ initial
                  loop gens' a
@@ -58,7 +63,7 @@ crossoverConduit ::
 crossoverConduit pc = awaitForever (liftIO . crossover pc)
 
 
-{- Evaluaton Conduit -}
+{- Evaluation Conduit -}
 evaluationConduit :: 
   (a -> IO Double) ->
   Conduit (Pop a) IO (Pop (a, Double))
@@ -71,3 +76,31 @@ pointMutationConduit ::
   Prob -> Int -> Int -> Conduit Pop32 IO Pop32
 pointMutationConduit pm is bits = awaitForever (liftIO . pointMutation pm is bits)
 
+
+{- Rotation Conduit -}
+rotationConduit ::
+  Prob -> 
+  Conduit (Pop (Ind a)) IO (Pop (Ind a))
+rotationConduit prob = awaitForever (liftIO . rotation prob)
+
+{- Selection -}
+stochasticTournamentConduit ::
+  Prob ->
+  Conduit (Pop (a, Double)) IO (Pop a)
+stochasticTournamentConduit prob = awaitForever (liftIO . stochasticTournament prob)
+
+tournamentSelectionConduit :: 
+  Int ->
+  Conduit (Pop (Ind a, Double)) IO (Pop (Ind a))
+tournamentSelectionConduit size = awaitForever (liftIO . tournamentSelection size)
+
+{- Elitism -}
+elitismConduit ::
+  Int ->
+  (Pop (a, Double) -> IO (Pop a)) -> 
+  Conduit (Pop (a, Double)) IO (Pop a)
+elitismConduit k select = awaitForever $ \ pop -> do
+  let (elite, common) = S.splitAt k $ S.sortBy (compare `on` snd) pop
+  selected <- liftIO $ select common
+  C.yield (fmap fst elite S.>< selected)
+    

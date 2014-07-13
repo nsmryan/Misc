@@ -47,7 +47,24 @@ cabal-version:       >=1.10
 
 library
 --  -- Modules exported by the library.
-  exposed-modules:     RGEP, UtilsRandom, PointMutation, Types, Main, PBIL, RMHC, Crossover, Selection, Rotation, Conduit, Evaluation
+  exposed-modules: RGEP,
+                   UtilsRandom,
+                   PointMutation,
+                   Types,
+                   PBIL,
+                   RMHC,
+                   Crossover,
+                   Selection,
+                   Rotation,
+                   Conduit,
+                   Evaluation,
+                   GA,
+                   Examples,
+                   Utils,
+                   SeqZip,
+                   Common
+
+  hs-source-dirs:   src
   
   -- Modules included in this library but not exported.
   -- other-modules:       
@@ -56,17 +73,91 @@ library
   other-extensions:    FlexibleContexts
   
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.5 && <4.6, containers >=0.4 && <0.5, vector >=0.9 && <0.10, split >=0.1 && <0.2, random-fu >=0.2 && <0.3, transformers >=0.3 && <0.4, primitive >=0.4 && <0.5, monad-primitive >=0.1 && <0.2, random-source >=0.3 && <0.4, random >=1.0 && <1.1, monads-tf, ekg, network, hslogger, conduit, void
+  build-depends: base >=4.5 && <=4.6.0.1,
+                 containers >=0.4 && <=0.5.1,
+                 vector < 0.11,
+                 split >=0.1 && <0.2,
+                 random-fu >=0.2 && <0.3,
+                 transformers >=0.3 && <0.4,
+                 primitive <= 0.6,
+                 monad-primitive >=0.1 && <0.2,
+                 random-source >=0.3 && <0.4,
+                 random >=1.0 && <1.1,
+                 monads-tf,
+                 ekg,
+                 network,
+                 hslogger,
+                 conduit,
+                 conduit-extra == 1.1.0.4,
+                 void,
+                 stm  < 2.5,
+                 stm-chans < 4.0,
+                 stm-conduit <= 2.5.0,
+                 vault >= 0.2.0.0,
+                 split < 0.3.0,
+                 mwc-random < 0.13.2,
+                 mwc-random-monad < 0.8,
+                 comonad < 4.3
   
   -- Directories containing source files.
   -- hs-source-dirs:      
   
   -- Base language which the package is written in.
   default-language:    Haskell2010
-  
-executable           misc
-  main-is:             Main.hs
 
-  ghc-options:         -prof -auto-all 
-  
-  build-depends:       base
+benchmark MiscBench
+  type:             exitcode-stdio-1.0
+
+  hs-source-dirs:   bench
+
+  main-is:          Bench.hs
+
+  build-depends:    base,
+                    criterion,
+                    Misc,
+                    containers,
+                    vector < 0.11
+
+  ghc-options:      -O2
+
+  default-language:    Haskell2010
+
+Test-Suite MiscTest
+    type:       exitcode-stdio-1.0
+
+    main-is:    Test.hs
+
+    hs-source-dirs: test
+
+    build-depends: base,
+                   Misc,
+                   tasty <= 0.9,
+                   tasty-hunit < 0.9.0.0,
+                   tasty-quickcheck < 0.9.0,
+                   tasty-smallcheck < 0.9,
+                   containers >=0.4 && <=0.5.1,
+                   vector < 0.11,
+                   random-fu >=0.2 && <0.3,
+                   random-source >=0.3 && <0.4,
+                   random >=1.0 && <1.1,
+                   mwc-random < 0.13.2,
+                   primitive <= 0.6,
+                   mwc-random-monad < 0.8,
+                   monad-primitive >=0.1 && <0.2
+  ghc-options:     -O2
+
+  default-language:    Haskell2010
+
+Executable misc
+  hs-source-dirs: misc
+
+  build-depends: base,
+                 Misc,
+                 containers >=0.4 && <=0.5.1,
+                 process,
+                 random-fu >=0.2 && <0.3,
+                 vector < 0.11,
+                 hs-gchart
+
+  main-is: Main.hs
+                 
