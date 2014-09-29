@@ -1,11 +1,22 @@
+{-# LANGUAGE TypeFamilies, MultiParamTypeClasses, GADTs, TemplateHaskell, FlexibleContexts #-}
 module Types where
 
 import qualified Data.Sequence as S
+import qualified Data.Foldable as F
 import qualified Data.Vector as V
 import Data.Word
 import Data.Random
 import Data.Monoid
 import Data.Conduit
+import Data.Function
+import Data.Random.Source
+import Data.Random.Internal.Words
+
+import Math.Probable.Random
+
+import Control.Monad.Primitive
+
+import Common
 
 type Prob = Double
 
@@ -59,4 +70,40 @@ type PopBits = S.Seq IndBits
 
 type IndVBits = Int
 type PopVBits = V.Vector IndBits
+
+{- Algorithm Types -}
+data RGEP d p = RGEP
+data GA r d l p = GA
+
+{- Problem Types -}
+data BitSet = BitSet
+data LargeNumber = LargeNumber
+data ANN = ANN
+
+{- Monad Random Instances -}
+$(monadRandom [d|
+  instance (PrimMonad m) => MonadRandom (RandT m) where
+    getRandomWord8 = word8
+    getRandomWord16 = word16
+    getRandomWord32 = word32
+    getRandomWord64 = word64
+    getRandomDouble = double
+  |])
+
+{- Additional Genericness -}
+type family HasRepr a 
+type instance HasRepr (GA r d l p) = r
+type instance HasRepr (RGEP d p) = Pop32
+
+type family HasSolution a
+type instance HasSolution (RGEP d p) = p
+type instance HasSolution (GA r d l p) = p
+
+type family HasLocus a
+type instance HasLocus (RGEP d p) = Word32
+type instance HasLocus (GA r d l p) = l
+
+type family HasProblem a
+type instance HasProblem (RGEP d p) = p
+type instance HasProblem (GA r d l p) = p
 

@@ -10,6 +10,7 @@ import Data.Traversable
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad
+import Control.Parallel
 
 import Types
 import Utils
@@ -23,9 +24,9 @@ crossPair crossPoint (a, b) =
       
 unpair as = (fmap fst as, fmap snd as)
 
-crossoverPure :: 
+crossApplyOn :: 
   [Int] -> [Int] -> Pop (Ind a) -> Pop (Ind a)
-crossoverPure indices crossPoints population = let
+crossApplyOn indices crossPoints population = let
   pairs = foldInHalf population 
   crossedPairs = applyOnEach ($) (zip indices (map crossPair crossPoints)) pairs
   (firstHalf, secondHalf) = unpair crossedPairs
@@ -38,16 +39,18 @@ crossover p population = do
       len = S.length $ population `S.index` 0
   indices <- generateIndices totalLength p
   crossPoints <- replicateM (length indices) $ fromRange len
-  return $ crossoverPure indices crossPoints population
+  return $ crossApplyOn indices crossPoints population
 
-crossoverNaive ::
-  (MonadRandom m, Functor m, Applicative m) =>
-  Prob -> PopV (IndV a) -> m (PopV (IndV a))
-crossoverNaive p population = do
+crossoverVectWith ::
+  (Prob -> ((IndV a, IndV a) -> RVar (IndV a, IndV a))) ->
+  Prob ->
+  PopV (IndV a) ->
+  RVar (PopV (IndV a))
+crossoverVectWith crosser p population = do
   let len = V.length population
   let (front, back) = V.splitAt (len `div` 2) population
   let pairs = V.zip front back 
-  crossed <- traverse (crossNaiveVect p) pairs
+  crossed <- traverse (crosser p) pairs
   let unpaired = (V.map fst crossed) `mappend` (V.map snd crossed)
   return unpaired
 
@@ -61,6 +64,60 @@ crossNaiveVect pc inds@(ind, ind') = do
       return (front `mappend` front', back' `mappend` back)
     else return inds
 
+crossNaiveVectPar pc inds@(ind, ind') = do
+  p <- sample stdUniform
+  if p < pc
+    then do
+      point <- sample (uniform 0 (V.length ind)) 
+      let (front, back) = V.splitAt point ind
+      let (front', back') = V.splitAt point ind'
+      let crossed  = front `mappend` front'
+      let crossed' = back' `mappend` back
+      return $ crossed `par` crossed' `pseq` (crossed, crossed')
+    else return inds
+
+crossVectSeq = crossoverVectWith crossNaiveVect 
+crossVectPar = crossoverVectWith crossNaiveVectPar
+
+crossoverSeqWith ::
+  (Prob -> (Ind a, Ind a) -> RVar (Ind a, Ind a)) ->
+  Prob ->
+  Pop (Ind a) ->
+  RVar (Pop (Ind a))
+crossoverSeqWith crosser p population = do
+  let len = S.length population
+  let (front, back) = S.splitAt (len `div` 2) population
+  let pairs = S.zip front back 
+  crossed <- traverse (crosser p) pairs
+  let unpaired = (fmap fst crossed) `mappend` (fmap snd crossed)
+  return unpaired
+
+crossoverSeq = crossoverSeqWith crossSeq
+crossoverPar = crossoverSeqWith crossPar
+
+crossSeq pc inds@(ind, ind') = do
+  p <- sample stdUniform
+  if p < pc
+    then do
+      point <- sample (uniform 0 (S.length ind)) 
+      let (front, back) = S.splitAt point ind
+      let (front', back') = S.splitAt point ind'
+      let crossInd = front `mappend` front' 
+      let crossInd' = back' `mappend` back
+      return $ (crossInd, crossInd')
+    else return inds
+
+crossPar pc inds@(ind, ind') = do
+  p <- sample stdUniform
+  if p < pc
+    then do
+      point <- sample (uniform 0 (S.length ind)) 
+      let (front, back) = S.splitAt point ind
+      let (front', back') = S.splitAt point ind'
+      let crossInd = front `mappend` front' 
+      let crossInd' = back' `mappend` back
+      return $ crossInd `par` crossInd' `pseq` (crossInd, crossInd')
+    else return inds
 
 {- Multipoint crossover -}
 foldInHalf s = S.zip top bottom where

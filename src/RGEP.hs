@@ -56,28 +56,28 @@ twoTerm = mkTerm "2"  (2.0)
 arithOps = [plusOp, minusOp, timesOp, divOp, incOp, zeroTerm, oneTerm, twoTerm]
 
 -- Stack operations
-dup  = Op "dup"  (Arity 1 2) (uncurry (:) . (head &&& id))
+dup    = Op "dup"  (Arity 1 2) (uncurry (:) . (head &&& id))
 dropOp = Op "drop" (Arity 1 0) tail
-swap = Op "swap" (Arity 2 2) $ \ (a:a':as) -> a':a:as
-tuck = Op "tuck" (Arity 2 3) $ \ (a:a':as) -> (a:a':a:as)
+swap   = Op "swap" (Arity 2 2) $ \ (a:a':as) -> a':a:as
+tuck   = Op "tuck" (Arity 2 3) $ \ (a:a':as) -> (a:a':a:as)
 
 stackOps = [dup, dropOp, swap, tuck]
 
 -- Bit Set operators
 unionOp, removeOp, intersectionOp, complementOp :: Int -> Op Integer
-unionOp size = mkOp2 "U" (.|.)
-removeOp size = mkOp2 "//" $ \a b -> keepOnly size (a .&. (complement b))
+unionOp size        = mkOp2 "U" (.|.)
+removeOp size       = mkOp2 "//" $ \a b -> keepOnly size (a .&. (complement b))
 intersectionOp size = mkOp2 "I" (.&.)
-complementOp size = mkOp1 "Not" (keepOnly size . complement)
+complementOp size   = mkOp1 "Not" (keepOnly size . complement)
 
 setBitOp, clearBitOp, setBitTerm :: Int -> Int -> Op Integer
-setBitOp bitNum size = mkOp1 ("Set " ++ show bitNum) (flip setBit bitNum)
+setBitOp bitNum size   = mkOp1 ("Set " ++ show bitNum) (flip setBit bitNum)
 clearBitOp bitNum size = mkOp1 ("Clear " ++ show bitNum) (flip clearBit bitNum)
-setBitTerm bitNum size = mkTerm (show bitNum) (1 `shiftL` bitNum)
+setBitTerm bitNum size = mkTerm (show bitNum) (bit bitNum)
 
 allBitsTerm, noBitsTerm :: Int -> Op Integer
 allBitsTerm size = mkTerm "All" ((2 ^ size) - 1)
-noBitsTerm size = mkTerm "0" 0
+noBitsTerm size  = mkTerm "0" 0
 
 keepOnly n val = ((2 ^ n) - 1) .&. val
 
@@ -114,7 +114,7 @@ cleanProg = onlyRunnable . filterUnderflows
 stackEffect :: [Op a] -> Arity
 stackEffect = mconcat . map arity
 
-runOpsUnsafe ops = foldl (.) id (map program . reverse $ ops) []
+runOpsUnsafe ops = foldl' (.) id (map program . reverse $ ops) []
 runOps = runOpsUnsafe . cleanProg
 
 runProgram prog = do

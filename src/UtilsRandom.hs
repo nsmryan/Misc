@@ -30,6 +30,9 @@ runRandIO m = do
   ref <- newIORef g
   runRVar m ref
 
+runMWCIO :: MWC.Rand IO a -> IO a
+runMWCIO m = MWC.runWithSystemRandom m
+
 runRandT m g = evalStateT m g
 
 runRandPure m g = evalState m g

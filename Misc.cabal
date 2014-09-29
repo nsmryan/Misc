@@ -65,6 +65,12 @@ library
                    Common
 
   hs-source-dirs:   src
+
+  ghc-options: -O2
+               -threaded
+               "-with-rtsopts=-N -s -i0.1"
+
+  ghc-prof-options: -fprof-auto
   
   -- Modules included in this library but not exported.
   -- other-modules:       
@@ -73,10 +79,9 @@ library
   other-extensions:    FlexibleContexts
   
   -- Other library packages from which modules are imported.
-  build-depends: base >=4.5 && <=4.6.0.1,
+  build-depends: base,
                  containers >=0.4 && <=0.5.1,
                  vector < 0.11,
-                 split >=0.1 && <0.2,
                  random-fu >=0.2 && <0.3,
                  transformers >=0.3 && <0.4,
                  primitive <= 0.6,
@@ -84,9 +89,12 @@ library
                  random-source >=0.3 && <0.4,
                  random >=1.0 && <1.1,
                  monads-tf,
+                 ekg-core,
                  ekg,
+                 ekg-statsd,
                  network,
                  hslogger,
+                 parallel,
                  conduit,
                  conduit-extra == 1.1.0.4,
                  void,
@@ -97,6 +105,7 @@ library
                  split < 0.3.0,
                  mwc-random < 0.13.2,
                  mwc-random-monad < 0.8,
+                 probable < 0.2.0.0,
                  comonad < 4.3
   
   -- Directories containing source files.
@@ -106,19 +115,27 @@ library
   default-language:    Haskell2010
 
 benchmark MiscBench
-  type:             exitcode-stdio-1.0
+  type:            exitcode-stdio-1.0
 
-  hs-source-dirs:   bench
+  hs-source-dirs:  bench
 
-  main-is:          Bench.hs
+  main-is:         Bench.hs
 
-  build-depends:    base,
-                    criterion,
-                    Misc,
-                    containers,
-                    vector < 0.11
+  build-depends:   base,
+                   criterion,
+                   Misc,
+                   containers,
+                   random-fu >=0.2 && <0.3,
+                   mwc-random-monad < 0.8,
+                   mwc-random,
+                   probable < 0.2.0.0,
+                   vector < 0.11
 
-  ghc-options:      -O2
+  ghc-options: -O2
+               -threaded
+               "-with-rtsopts=-N -s -i0.1"
+
+  ghc-prof-options: -fprof-auto
 
   default-language:    Haskell2010
 
@@ -143,8 +160,11 @@ Test-Suite MiscTest
                    mwc-random < 0.13.2,
                    primitive <= 0.6,
                    mwc-random-monad < 0.8,
+                   probable < 0.2.0.0,
                    monad-primitive >=0.1 && <0.2
   ghc-options:     -O2
+
+  ghc-prof-options: -fprof-auto
 
   default-language:    Haskell2010
 
@@ -156,8 +176,31 @@ Executable misc
                  containers >=0.4 && <=0.5.1,
                  process,
                  random-fu >=0.2 && <0.3,
+                 ekg-core,
+                 ekg-statsd,
+                 unordered-containers < 0.3,
+                 ekg,
                  vector < 0.11,
+                 mwc-random-monad < 0.8,
+                 diagrams < 2,
+                 diagrams-lib < 2,
+                 palette < 0.2.0.0,
+                 diagrams-svg < 1.2,
+                 diagrams-cairo < 1.3,
+                 colour < 2.5,
+                 async < 2.1,
+                 optparse-applicative < 1.0.0,
+                 probable < 0.2.0.0,
+                 configurator < 0.4.0.0,
+                 split,
                  hs-gchart
 
   main-is: Main.hs
-                 
+
+  default-language:    Haskell2010
+
+  ghc-options: -O2
+               -threaded
+               "-with-rtsopts=-N -s -i0.1"
+
+  ghc-prof-options: -fprof-auto

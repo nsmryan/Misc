@@ -24,6 +24,8 @@ import SeqZip
 
 failuresWith p u = floor (log u / log (1 - p))
 
+toBits bits i = map (fromEnum . testBit i) [0..bits-1]
+
 repeatM :: (Monad m) => m a -> m [a]
 repeatM = sequence . repeat
 
@@ -41,6 +43,28 @@ puts f = do
   s <- get
   put (f s)
 
+{- Diversity Measures -}
+--TODO consider incorporating the edit-distance package
+--to provide diversity of RGEP phenotypes.
+--TODO this maybe should be in another file?
+--make this type more generic
+--this comes from "Measurements of Population Diversity"
+
+--splits out bits before calculating diversity
+wordDiversity :: (Bits n) => Int -> S.Seq (S.Seq n) -> Double
+wordDiversity bits iss =
+  centroidDiversity $ fmap (S.fromList . F.concat . fmap (toBits bits)) iss
+
+centroidDiversity :: (Integral n) => S.Seq (S.Seq n) -> Double
+centroidDiversity dss = diversity' (S.length dss) $ F.toList $ fmap F.toList $ (fmap (fmap fromIntegral)) dss
+
+diversity' :: Int -> [[Double]] -> Double
+diversity' n dss =
+  let centroids = map ((/len) . sum) transposed  
+      transposed = transpose dss
+      len = fromIntegral n
+  in 
+    sum $ map (\(ds, c) -> sum $ map (\a -> (a-c)^2) ds) $ zip transposed centroids
 
 {- Efficient application of genetic operators -}
 --should use mono-traversable and sequence
