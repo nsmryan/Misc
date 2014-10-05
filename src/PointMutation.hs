@@ -18,8 +18,8 @@ import Common
 
 {- Pure -}
 mutateLocus :: [Int] -> Word32 -> Word32
-mutateLocus is n = foldr flipBit n is where
-  flipBit index n = n `xor` (1 `shiftL` index)
+mutateLocus is n = foldr flipBit n is
+flipBit index n = n `xor` (1 `shiftL` index)
 
 pointMutationPure :: Int -> Int -> [Int] -> Pop32 -> Pop32
 pointMutationPure indLength bits indices pop =

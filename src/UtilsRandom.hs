@@ -33,7 +33,7 @@ runRandIO m = do
 runMWCIO :: MWC.Rand IO a -> IO a
 runMWCIO m = MWC.runWithSystemRandom m
 
-runRandT m g = evalStateT m g
+--runRandT m g = evalStateT m g
 
 runRandPure m g = evalState m g
 

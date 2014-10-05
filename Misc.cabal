@@ -62,7 +62,10 @@ library
                    Examples,
                    Utils,
                    SeqZip,
-                   Common
+                   Common,
+                   PipeOperators,
+                   Channels,
+                   PipeAlgorithms
 
   hs-source-dirs:   src
 
@@ -106,7 +109,12 @@ library
                  mwc-random < 0.13.2,
                  mwc-random-monad < 0.8,
                  probable < 0.2.0.0,
-                 comonad < 4.3
+                 comonad < 4.3,
+                 pipes < 4.2,
+                 pipes-concurrency < 3,
+                 probable < 1.0.0.0,
+                 async < 2.1
+
   
   -- Directories containing source files.
   -- hs-source-dirs:      

@@ -124,6 +124,8 @@ foldInHalf s = S.zip top bottom where
   (top, bottom) = S.splitAt midPoint s
   midPoint = S.length s `div` 2
 
+unfoldInHalf s = uncurry (S.><) $ unpair s
+
 exchange as bs = exchange' S.empty S.empty as bs
 
 exchange' rest rest' [] [] = (rest, rest')
