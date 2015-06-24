@@ -4,12 +4,12 @@ module Common (
   module Data.List,
   module Data.List.Split,
   module Data.Function,
-  module Data.Random,
   module Data.Bits,
   module Text.Printf,
   module Debug.Trace,
   module Control.Arrow,
-  module Control.Monad
+  module Control.Monad,
+  module Math.Probable
 ) where
 
 import Data.Word
@@ -19,6 +19,8 @@ import Data.Bits
 import Data.List.Split
 import Data.Function
 import Data.Random
+
+import Math.Probable
 
 import Text.Printf
 

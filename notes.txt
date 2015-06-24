@@ -1,27 +1,44 @@
 Next:
-  Generalize chart generation
-  Test GA and RGEP against random bitmap to make more fair
+  Config files- get on command line, pass through to reader monad.
+    use for operators parameters, algorithm parameters, eventually
+    problem type and data source, logging flags/file names
+
+  Logging- config file determines if value is monitored. if so, uses a global logging
+    server running in a seperate thread that takes loggables and log names and outputs
+    them to files.
+
+  Generalize chart generation:
+    read log files out. match chart options to log file names, read data, produce
+      result picture, and merge pictures into result file
 
 
-Consider switching between testing each index and using the
-  applyMOn functions. The cutoff would be when the extra complexity
-  isn't worth the time it takes to generate numbers.
+Visualizations:
+  best ind diff (or weighted by normalized fitness)-
+    between generations graph number of differences
+    possibly tree form as well as linear form
+    heatmap of most changed places
+    grid of best individuals
 
+  whole population grid animation
+
+
+type families for different problem results
+
+possible uses for generics? sum-of-products
+
+RGEP has both breaddth and depth:
+  function representation has a lot of applications
+    classification
+    board evaluator
+  there are many possible structures that can be encoded
+    linear, tree, program, equations, graphs
 
 Could add testing to tasty to allow getting, say, average fitness
   from different algorithms in 100 runs.
-  Need a way to visualize, though
-
 
 Use Main to allow the different use-cases of the algorithms
 
   
-What oppertunities exist for parallelism?
-  pipeline parallel
-  parallel operators
-  parallel algorithms
-
-
 TRGEP- Typed Robust Gene Expression Programming
   encode arity in first bits
   build "tree"- remove underflows and extra operators
@@ -30,17 +47,18 @@ TRGEP- Typed Robust Gene Expression Programming
 
 
   advantages- typeful, more expressive, more uniform
+    examples of increased expressiveness?
+
+  questions-
 
   how to deal with arities not give by user?
     either build out of other operators, or index as usual
+
   will we get sufficiently many terminals?
+    maybe things not decoding exactly decode as 0? add terminals
   
-  to solve both number of terminals and extra values-
-    all arities that are not used are terminals!
-
-
-Whats the effect of high-arity operators? does it help or hurt to add, say, 3 arity ones
-  that just combine 2 arity ones?
+  Whats the effect of high-arity operators? does it help or hurt to add, say, 3 arity ones
+    that just combine 2 arity ones?
 
 
 Type Families for configurations:
@@ -49,3 +67,26 @@ Type Families for configurations:
 
 
 RGEP- makeTree should make the tree from an individual- return this from rgep?
+
+Exploring algorithms-
+  Any statistics logged and visualized, with lots of defaults
+  Add new operators, try new algorithms, reuse old ones
+  Reversable Algorithms-
+    keep track of changes to individuals-
+      unique individual ID that doesn't change
+      revision number that changes after even modification
+      list of changes
+        [
+        , Change (id of 4) (Fitness 20)
+          Change (id of 3) (mutated (location 10 from 0 to 1))
+        , Change (id of 2) (crossed (Left [1,43,545,1])
+        , Change (id of 1) (Fitness 10)
+        , Change (id of 0) initialized
+        ]
+    run algorithm backwards to study-
+      how sensitive is it to small changes in the original population? or to the particular choices of the operators?
+      where did the result come from? 
+        which operators? 
+        did it start out as the best, or did it accumulate fitness?
+        how did its fitness change over time? which operators contributed?
+

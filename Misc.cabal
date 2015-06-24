@@ -65,15 +65,21 @@ library
                    Common,
                    PipeOperators,
                    Channels,
-                   PipeAlgorithms
+                   PipeAlgorithms,
+                   HealMonad,
+                   AlgorithmMain
 
   hs-source-dirs:   src
 
   ghc-options: -O2
                -threaded
-               "-with-rtsopts=-N -s -i0.1"
+               "-with-rtsopts=-N -h -p -s -i0.1"
 
-  ghc-prof-options: -fprof-auto
+  ghc-prof-options: -O2
+                    -threaded
+                    -fprof-auto
+                    -prof
+                    "-with-rtsopts=-N -p -h -s -i0.1"
   
   -- Modules included in this library but not exported.
   -- other-modules:       
@@ -85,35 +91,66 @@ library
   build-depends: base,
                  containers >=0.4 && <=0.5.1,
                  vector < 0.11,
-                 random-fu >=0.2 && <0.3,
                  transformers >=0.3 && <0.4,
                  primitive <= 0.6,
                  monad-primitive >=0.1 && <0.2,
+                 monads-tf,
+                 vault >= 0.2.0.0,
+                 split < 0.3.0,
+                 void,
+                 comonad < 4.3,
+                 deepseq-generics,
+                 deepseq,
+
+                 --Pipes
+                 pipes < 4.2,
+
+                 --Auto
+                 auto >= 0.4.0.0,
+
+                 --maybe can remove
+                 random-fu >=0.2 && <0.3,
                  random-source >=0.3 && <0.4,
                  random >=1.0 && <1.1,
-                 monads-tf,
+                 conduit,
+                 conduit-extra == 1.1.0.4,
+
+                 --diagrams
+                 diagrams < 2,
+                 diagrams-lib < 2,
+                 diagrams-svg < 1.2,
+                 diagrams-cairo < 1.3,
+
+                 --charts
+                 Chart,
+                 Chart-diagrams,
+
+                 --parellelism
+                 parallel,
+                 --stm  < 2.5,
+                 --stm-chans < 4.0,
+                 --stm-conduit <= 2.5.0,
+                 pipes-concurrency < 3,
+                 async < 2.1,
+
+                 --Randomness
+                 mwc-random,
+                 mwc-random-monad < 0.8,
+                 --probable < 0.2.0.0,
+                 probable < 1.0.0.0,
+
+                 --Configuration
+                 configurator < 0.4.0.0,
+
+                 --Monitoring
                  ekg-core,
                  ekg,
                  ekg-statsd,
                  network,
                  hslogger,
-                 parallel,
-                 conduit,
-                 conduit-extra == 1.1.0.4,
-                 void,
-                 stm  < 2.5,
-                 stm-chans < 4.0,
-                 stm-conduit <= 2.5.0,
-                 vault >= 0.2.0.0,
-                 split < 0.3.0,
-                 mwc-random < 0.13.2,
-                 mwc-random-monad < 0.8,
-                 probable < 0.2.0.0,
-                 comonad < 4.3,
-                 pipes < 4.2,
-                 pipes-concurrency < 3,
-                 probable < 1.0.0.0,
-                 async < 2.1
+
+                 --Option Parsing
+                 optparse-applicative < 1.0.0
 
   
   -- Directories containing source files.
@@ -143,7 +180,11 @@ benchmark MiscBench
                -threaded
                "-with-rtsopts=-N -s -i0.1"
 
-  ghc-prof-options: -fprof-auto
+  ghc-prof-options: -O2
+                    -threaded
+                    -fprof-auto
+                    -prof
+                    "-with-rtsopts=-N -p -h -s -i0.1"
 
   default-language:    Haskell2010
 
@@ -172,7 +213,11 @@ Test-Suite MiscTest
                    monad-primitive >=0.1 && <0.2
   ghc-options:     -O2
 
-  ghc-prof-options: -fprof-auto
+  ghc-prof-options: -O2
+                    -threaded
+                    -fprof-auto
+                    -prof
+                    "-with-rtsopts=-N -p -h -s -i0.1"
 
   default-language:    Haskell2010
 
@@ -209,6 +254,12 @@ Executable misc
 
   ghc-options: -O2
                -threaded
-               "-with-rtsopts=-N -s -i0.1"
+               ---fprof-auto
+               -eventlog
+               --"-with-rtsopts=-N -lf -h -s -i0.1"
 
-  ghc-prof-options: -fprof-auto
+  ghc-prof-options: -O2
+                    -threaded
+                    -fprof-auto
+                    -prof
+                    "-with-rtsopts=-N -p -h -s -i0.1"

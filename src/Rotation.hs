@@ -14,7 +14,7 @@ import UtilsRandom
 
 
 {- Rotation -}
-rotate rotationPoint ind = let
+rotateIndividual rotationPoint ind = let
   (top, bottom) = S.splitAt rotationPoint ind
    in bottom S.>< top
 
@@ -25,12 +25,12 @@ rotationPure ::
   (Pop (Ind a))
 rotationPure indices rotationPoints pop =
   applyOnEach ($) (zip indices rotations) pop where
-    rotations = map rotate rotationPoints
+    rotations = map rotateIndividual rotationPoints
 
-rotation :: (Functor m, MonadRandom m) =>
+rotation ::
   Prob -> 
   (Pop (Ind a)) ->
-  m (Pop (Ind a))
+  R (Pop (Ind a))
 rotation pr pop = let
   popLen = S.length pop
   indLen = S.length $ pop `S.index` 0

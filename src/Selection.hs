@@ -17,6 +17,8 @@ import Control.Applicative
 import Types
 import Utils
 import UtilsRandom
+import Common
+import Evaluation
 
 
 {- Tournament Selection -}
@@ -27,19 +29,19 @@ vectToSeq :: V.Vector a -> S.Seq a
 vectToSeq = S.fromList . F.toList
 
 tournamentSelectionPure :: 
-  [[Int]] -> Pop (Ind a, Double) -> Pop (Ind a)
+  [[Int]] -> Pop (Evaled a b) -> Pop a
 tournamentSelectionPure competitors population =
   let vectPop = seqToVect population
       len = V.length vectPop
       choices = map (map (vectPop V.!)) competitors 
-      winners = fmap (maximumBy (compare `on` snd)) choices
-    in fmap fst . S.fromList $ winners
+      winners = fmap (maximumBy compareFitnesses) choices
+    in genetics . S.fromList $ winners
 
 generateTournament sizeTournament sizePool = do
   replicateM sizeTournament (fromRange sizePool)
 
-tournamentSelection :: (MonadRandom m) =>
-  Int -> Pop (Ind a, Double) -> m (Pop (Ind a))
+tournamentSelection ::
+  Int -> Pop (Evaled a b) -> R (Pop a)
 tournamentSelection size population = let len = S.length population in
   do indices <- replicateM len $ generateTournament size len
      return $ tournamentSelectionPure indices population
@@ -56,7 +58,7 @@ choose p pair = let (a, b) = ensure pair in do
     else b
 
 stochasticTournamentPure ::
-  Double -> [(Int, Int, Double)] -> Pop (a, Double) -> Pop a
+  Double -> [(Int, Int, Double)] -> Pop (Evaled a b) -> Pop a
 stochasticTournamentPure cutoff tournaments population = 
   let v = seqToVect population
       len = V.length v
@@ -64,17 +66,17 @@ stochasticTournamentPure cutoff tournaments population =
       fight (i, i', p) = if p < cutoff then best else worst where
         ind = v V.! i
         ind' = v V.! i'
-        best = maxBy snd ind ind'
-        worst = minBy snd ind ind'
+        best = maxBy fitness ind ind'
+        worst = minBy fitness ind ind'
   in
-  S.fromList . map fst $ winners
+  S.fromList . genetics $ winners
 
-stochasticTournament :: (MonadRandom m, Applicative m) =>
-  Prob -> Pop (a, Double) -> m (Pop a)
+stochasticTournament ::
+  Prob -> Pop (Evaled a b) -> R (Pop a)
 stochasticTournament prob population = 
   let len = S.length population
       genChoices = replicateM len $ fromRange len
-      ps = replicateM len (sample stdUniform)
+      ps = replicateM len (r $ double)
   in do tournaments <- zip3 <$> genChoices <*> genChoices <*> ps
         return $ stochasticTournamentPure prob tournaments population
 

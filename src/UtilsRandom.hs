@@ -2,86 +2,66 @@
 module UtilsRandom where
 
 --import Data.Random.Source
-import Data.Random.Source.PureMT
-import Data.Random.Sample
-import Data.Random.Distribution.Exponential
-import Data.Random.Distribution.Uniform
 import Data.IORef
 import qualified Data.Sequence as S
 
+import Math.Probable
+
+import Pipes.Concurrent
+
 import Control.Applicative
 import Control.Monad.State
-
-import System.Random
-import qualified System.Random.MWC.Monad as MWC
+import Control.Concurrent.Async
 
 import Common
 import Types
 import Utils
 
 
-uniformGeometric :: (MonadRandom m) => Double -> m Int
-uniformGeometric p = sample $ failuresWith p <$> stdUniform
 
-geo p = uniformGeometric p
+randomly ma = R ma
 
-runRandIO m = do
-  g <- newPureMT
-  ref <- newIORef g
-  runRVar m ref
+asyncR  :: R a -> R (Async a)
+asyncR  = liftIO . async . mwc . runR
 
-runMWCIO :: MWC.Rand IO a -> IO a
-runMWCIO m = MWC.runWithSystemRandom m
+r = R
+rIO = mwc . runR
 
---runRandT m g = evalStateT m g
-
-runRandPure m g = evalState m g
-
-fromRange :: (Enum n, Num n, Distribution Uniform n, MonadRandom m) =>
-  n -> m n
-fromRange n = sample $ uniform 0 (pred n)
+fromRange n = r $ intIn (0, (pred n))
 
 {- Generate Random population -}
 
-stdIndividual :: (Distribution StdUniform a, MonadRandom m) =>
-  Int -> m (Ind a)
-stdIndividual is = S.replicateM is $ sample stdUniform
-
-stdPopulation :: (Distribution StdUniform a, MonadRandom m) =>
-  Int -> Int -> m (Pop (Ind a))
-stdPopulation ps is = S.replicateM ps $ stdIndividual is
-
-ind32 :: (MonadRandom m) => Int -> Int -> m Ind32
-ind32 is numBits = S.replicateM is $ sample $ uniform 0 bits where
+ind32 :: Int -> Int -> R Ind32
+ind32 is numBits = r $ S.replicateM is $ word32In (0, bits) where
   bits = (2 ^ (fromIntegral numBits)) - 1
 
 ind32All0 :: Int -> Ind32
 ind32All0 is = S.replicate is 0
 
-pop32 :: (MonadRandom m) => Int -> Int -> Int -> m Pop32
+pop32 :: Int -> Int -> Int -> R Pop32
 pop32 ps is bits = S.replicateM ps $ ind32 is bits
 
 pop32All0 :: Int -> Int -> Pop32
 pop32All0 ps is = S.replicate ps $ ind32All0 is 
 
-indR :: (MonadRandom m) => Int -> m IndR
-indR is = S.replicateM is $ sample stdUniform
+indR :: Int -> R IndR
+indR is = R $ S.replicateM is double
 
-popR :: (MonadRandom m) => Int -> Int -> m PopR
+popR :: Int -> Int -> R PopR
 popR ps is = S.replicateM ps $ indR is
 
-indBits :: (MonadRandom m) => Int -> m IndBits
+indBits :: Int -> R IndBits
 indBits cap = fromRange cap
 
-popBits :: (MonadRandom m) => Int -> Int -> m PopBits
+popBits :: Int -> Int -> R PopBits
 popBits len cap = S.replicateM len $ indBits cap
 
-generateIndices :: (MonadRandom m) =>
-  Int -> Prob -> m [Int]
+generateIndices ::
+  Int -> Prob -> R [Int]
 generateIndices n 0 = return []
 generateIndices n p = generateIndices' 0 n p where
   generateIndices' acc n p =
-    do i <- geo p
+    do i <- r $ geometric0 p
        let acc' = i + acc
        case acc' >= n of
          True -> return []

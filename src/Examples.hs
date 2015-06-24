@@ -78,7 +78,7 @@ testRGEPPBIL = do
   let ops = [zeroTerm, oneTerm, twoTerm, plusOp, timesOp, dup]
   let decoder = decode ops
   let eval = (0.0 -) . runProgramWithDefault 0.0 . fmap decoder
-  (ind, fit, probs) <- runRandIO $ rgepPBIL ops ps is gens 0.1 0.075 0.02 0.05 eval
+  (ind, fit, probs) <- rIO $ rgepPBIL ops ps is gens 0.1 0.075 0.02 0.05 eval
   print probs
   putStrLn ""
   print $ fmap name . cleanProg . fmap decoder $ ind
@@ -86,9 +86,10 @@ testRGEPPBIL = do
   print $ negate fit
 -}
 
+{-
 testGA gens = do
   let evaluate ind = return $ ones ind
-  population <- runRandIO $ geneticAlgorithm 10 1000 gens 0.01 0.6 evaluate
+  population <- rIO $ geneticAlgorithm 10 1000 gens 0.01 0.6 evaluate
   let (ind, fit) = F.maximumBy (compare `on` snd) population
   printf "ind = %s\n" (show ind)
   printf "fitness = %f\n" fit
@@ -96,7 +97,7 @@ testGA gens = do
 testRGEP = do
   let ops = [plusOp, timesOp, dup, oneTerm, twoTerm, zeroTerm] :: [Op Double]
       decoder = decode ops
-  population <- runRandIO $ rgep 100 20 ops 0.01 0.1 0.6 0.6 0.75 1000 0 return
+  population <- rIO $ rgep 100 20 ops 0.01 0.1 0.6 0.6 0.75 1000 0 return
   let (ind, fit) = F.maximumBy (compare `on` snd) population
   printf "ind = %s\n" (show ind)
   printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
@@ -109,17 +110,15 @@ testRGEPConduit = do
       ps = 100
       is = 20
       bits = bitsUsed ops
-  population <- liftIO $ pop32 ps is bits
-  --initial <- runRandIO $ evaluation (return . rgepRun decoder 0) population
+  population <- rIO $ pop32 ps is bits
+  --initial <- rIO $ evaluation (return . rgepRun decoder 0) population
   pop <- nGenerations gens population (rgepConduit is ps ops 0.01 0.1 0.6 0.6 0.75 0 return)
-  population' <- runRandIO $ evaluation (return . rgepRun decoder 0) pop
+  population' <- rIO $ evaluation (return . rgepRun decoder 0) pop
   let (ind, fit) = F.maximumBy (compare `on` snd) population'
   printf "bits = %s\n" (show bits)
   printf "ind = %s\n" (show ind)
   printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
   printf "fitness = %f\n" fit
 
-
-
-
+-}
 

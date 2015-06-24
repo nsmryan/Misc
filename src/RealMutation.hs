@@ -1,4 +1,5 @@
-module PointMutation where
+{-# LANGUAGE TypeFamilies, GeneralizedNewtypeDeriving #-}
+module RealMutation where
 
 import qualified Data.Sequence as S
 import qualified Data.Vector as V
@@ -15,26 +16,58 @@ import Utils
 import Types
 import Common
 
+--TODO provide real valued mutation
+--guassian as a start
+--0-1, -1-1, bounds, unbounded
+
+boundPlus a b = inBounds (a+b)
+boundMinus a b = inBounds (a-b)
+boundTimes a b = inBounds (a*b)
+boundDiv a b = inBounds (a/b)
+
+newtype UnitReal =
+  UnitReal { unitReal :: Double } deriving (Num, Eq)
+
+instance Bounded UnitReal where
+  maxBound = UnitReal 1.0
+  minBound = UnitReal 0.0
+
+instance Num UnitReal where
+  (+) = boundPlus
+  (-) = boundPlus
+  (*) = boundPlus
+  abs = 
+
+newtype Switcher =
+  Switcher { switcher :: Double } deriving (Num, Eq)
+
+instance Bounded Switcher where
+  maxBound = Switcher   1.0
+  minBound = Switcher (-1.0)
 
 {- Pure -}
 
--- Pure mutation on a word-length bitmap
-mutateLocus ::
-  [Int]  -> -- List of bit locations to flip
-  Word32 -> -- Bitmap to mutate
-  Word32    -- Mutated bitmap
-mutateLocus is n = foldr flipBit n is
-flipBit index n = n `xor` (1 `shiftL` index)
+inBounds :: (Bounded a) => a -> a
+inBounds a = max minBound (min maxBound a)
 
--- Pure implementation of the point mutation genetic operator
-pointMutationPure ::
+-- Pure mutation on a real valued locus
+mutateRealLocus ::
+  (Bounded a) =>
+  (a -> a) -> -- Modification
+  a -> -- Locus
+  a    -- Mutated value
+mutateRealLocus f a = inBounds $ f a
+
+-- Pure implementation of real valued mutation
+realMutationPure ::
+  (Bounded a) =>
   Int   -> -- The length of the individuals
-  Int   -> -- The number of bits used in each locus
-  [Int] -> -- The list of bit locations to mutate within the individual
-  Pop32 -> -- The population of individuals to mutate
-  Pop32    -- A mutated population
+  [a]   -> -- The list of perterbations for locuses
+  [Int] -> -- The list of locus locations to mutate
+  Pop a -> -- The population of individuals to mutate
+  Pop a    -- A mutated population
 pointMutationPure indLength bits indices pop =
-  applyWithinLocus indLength bits mutateLocus indices pop
+  applyFtoIx indLength bits mutateLocus indices pop
 
 {- Random -}
 

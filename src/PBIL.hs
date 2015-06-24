@@ -12,12 +12,13 @@ import UtilsRandom
 import Utils
 import PointMutation
 import Types
+import Common
 
 {- Population Based Incremental Learning -}
-genInd :: (MonadRandom m, T.Traversable t) =>
-  t Prob -> m (t Bool)
+genInd :: (T.Traversable t) =>
+  t Prob -> R (t Bool)
 genInd = T.mapM $ \ p -> do
-  p' <- sample stdUniform
+  p' <- r double
   return $ p' > p
 
 b2d :: Bool -> Double
@@ -32,8 +33,8 @@ adjustProb learn neglearn p minBit maxBit =
 
 mutIBPL probs' mutRate mutShift = S.zipWith3 mut probs' <$> bs <*> ps where
   len = S.length probs'
-  ps = S.replicateM len $ sample $ uniform 0 (1.0 :: Double)
-  bs = S.replicateM len $ sample $ uniform 0 (1.0 :: Double)
+  ps = S.replicateM len $ r $ double
+  bs = S.replicateM len $ r $ double
   mut p b p' = let b' = fromIntegral . round $ b in
     if p' < mutRate
       then (p * (1 - mutShift)) + (b' * mutShift) 
@@ -63,6 +64,6 @@ testPBIL = do
   let ps = 20
   let is = 100
   let gens = 1000
-  (ind, fit,  probs) <- runRandIO $ pbil ps is gens 0.05 0.01 0.2 0.05 id maxValue
+  (ind, fit,  probs) <- rIO $ pbil ps is gens 0.05 0.01 0.2 0.05 id maxValue
   print $ negate fit
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE  OverloadedStrings #-}
 module Conduit where
 
+{-
 import qualified Data.Sequence as S
 import Data.Conduit as C
 import Data.Conduit.TMChan
@@ -23,8 +24,11 @@ import Rotation
 import Evaluation
 import PointMutation
 import Selection
+import UtilsRandom
+import Common
 
 
+-- Draw from 2 conduits and yielding the pair that results
 conduit =&&&= conduit' = do
   (a:b:[]) <- sequenceConduits [conduit, conduit']
   C.yield (a, b)
@@ -53,54 +57,58 @@ nGenerations gens initial conduit = do
 {- Crossover Conduit -}
 multipointCrossoverConduit ::
   Prob -> -- probability of crossover
-  Int -> --number of cross points
+  Int  -> --number of cross points
   Conduit (Pop (Ind a)) IO (Pop (Ind a))
-multipointCrossoverConduit pc points = awaitForever (liftIO . multipointCrossover pc points)
+multipointCrossoverConduit pc points = awaitForever (liftIO . rIO . multipointCrossover pc points)
 
 crossoverConduit :: 
-  Prob ->
+  Prob -> -- Probability of crossover
   Conduit (Pop (Ind a)) IO (Pop (Ind a))
-crossoverConduit pc = awaitForever (liftIO . crossover pc)
+crossoverConduit pc = awaitForever (liftIO . rIO . crossover pc)
 
 
 {- Evaluation Conduit -}
 evaluationConduit :: 
-  (a -> IO Double) ->
-  Conduit (Pop a) IO (Pop (a, Double))
+  (Expressed a b -> IO Double) -> -- Evaluation of an individual
+  Conduit (Pop (Expressed a b)) IO (Pop (Evaled a b))
 evaluationConduit eval = awaitForever $ \ pop -> do
-  pop' <- liftIO $ S.zip pop <$> T.mapM eval pop
+  pop' <- liftIO $ S.zipWith Evaled pop <$> T.mapM eval pop
   C.yield pop'
 
 {- Point Mutation Conduit -}
 pointMutationConduit ::
-  Prob -> Int -> Int -> Conduit Pop32 IO Pop32
-pointMutationConduit pm is bits = awaitForever (liftIO . pointMutation pm is bits)
+  Prob -> -- Probability of mutation
+  Int  -> -- Size of individual
+  Int  -> -- Number of bit used in each locus
+  Conduit Pop32 IO Pop32
+pointMutationConduit pm is bits = awaitForever (liftIO . rIO . pointMutation pm is bits)
 
 
 {- Rotation Conduit -}
 rotationConduit ::
-  Prob -> 
+  Prob -> -- Probability of rotation 
   Conduit (Pop (Ind a)) IO (Pop (Ind a))
-rotationConduit prob = awaitForever (liftIO . rotation prob)
+rotationConduit prob = awaitForever (liftIO . rIO . rotation prob)
 
 {- Selection -}
 stochasticTournamentConduit ::
-  Prob ->
-  Conduit (Pop (a, Double)) IO (Pop a)
-stochasticTournamentConduit prob = awaitForever (liftIO . stochasticTournament prob)
+  Prob -> -- Probability of selecting the best individual in a tournament
+  Conduit (Pop (Evaled a b)) IO (Pop a)
+stochasticTournamentConduit prob = awaitForever (liftIO . rIO . stochasticTournament prob)
 
 tournamentSelectionConduit :: 
-  Int ->
-  Conduit (Pop (Ind a, Double)) IO (Pop (Ind a))
-tournamentSelectionConduit size = awaitForever (liftIO . tournamentSelection size)
+  Int -> -- Tournament size
+  Conduit (Pop (Evaled a b)) IO (Pop a)
+tournamentSelectionConduit size = awaitForever (liftIO . rIO . tournamentSelection size)
 
 {- Elitism -}
 elitismConduit ::
-  Int ->
-  (Pop (a, Double) -> IO (Pop a)) -> 
-  Conduit (Pop (a, Double)) IO (Pop a)
+  Int -> -- Number of elite individuals
+  (Pop (Evaled a b) -> IO (Pop a)) ->  -- Selection operator
+  Conduit (Pop (Evaled a b)) IO (Pop a)
 elitismConduit k select = awaitForever $ \ pop -> do
-  let (elite, common) = S.splitAt k $ S.sortBy (compare `on` snd) pop
+  let (elite, common) = S.splitAt k $ S.sortBy (compare `on` fitness) pop
   selected <- liftIO $ select common
-  C.yield (fmap fst elite S.>< selected)
+  C.yield (genetics elite S.>< selected)
     
+-}

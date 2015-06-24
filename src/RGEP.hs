@@ -27,13 +27,7 @@ import Evaluation
 import Conduit
 
 
---add conduit aspect
---system monitoring conduits
---add logging conduits
---add config file on top of conduits
-d a = traceShow a a 
-
-
+{- Operators -}
 mkOp1 name f = Op name (Arity 1 1) (onHead f) where
   onHead f (a:as) = f a : as
 
@@ -41,6 +35,9 @@ mkOp2 name f = Op name (Arity 2 1) (firstTwo f) where
   firstTwo f (a:a':as) = a `f` a' : as
 
 mkTerm name v = Op name (Arity 0 1) (v:)
+
+--Generic operators
+idOp = mkOp1 "id" id
 
 -- Plain arithmatic operations
 plusOp, minusOp, timesOp, divOp, incOp, zeroTerm, oneTerm, twoTerm :: Op Double
@@ -54,6 +51,7 @@ oneTerm = mkTerm "1"  (1.0)
 twoTerm = mkTerm "2"  (2.0)
 
 arithOps = [plusOp, minusOp, timesOp, divOp, incOp, zeroTerm, oneTerm, twoTerm]
+
 
 -- Stack operations
 dup    = Op "dup"  (Arity 1 2) (uncurry (:) . (head &&& id))
@@ -91,11 +89,36 @@ bitSetOpsSimple n =
   ++
   map ($(fromIntegral n)) [unionOp, removeOp, intersectionOp]
 
--- Polynomials
+--Polynominal (single variable)
+polyOp2 nam op = mkOp2 nam (\f g x -> f x `op` g x)
+polyConst nam v = mkTerm nam $ const v
+
+polyPlus = polyOp2 "+" (+)
+polyMinus = polyOp2 "-" (-)
+polyTimes = polyOp2 "*" (*)
+polyX = mkOp1 "x" id
+polyZero = polyConst "0"  0.0
+polyOne  = polyConst "1"  1.0
+polyTwo  = polyConst "2"  2.0
+polyFive = polyConst "5"  5.0
+polyTen  = polyConst "10" 10.0
+
+polyOps = [polyPlus, polyMinus, polyTimes, polyX, polyZero, polyOne, polyTwo, polyFive, polyTen]
+
+errorOn :: [(Double, Double)] -> (Double -> Double) -> Double
+errorOn trainingData f =
+  negate . sum . map (^2) $ zipWith (-) (map snd trainingData)
+                               (map (f . fst) trainingData)
+
+--Extra function operations
+logOp = mkOp1 "log" (log)
+
+
 -- Function creation
 -- Decision trees
 -- Neural Networks
 
+{- Gene Expression -}
 filterUnderflows ops = map fst . filter (snd) . zip ops . snd . mapAccumL composeEffects mempty $ ops
 composeEffects arr op = if outputs arr < inputs (arity op) then (arr, False) else (arr <> arity op, True)
 
@@ -127,7 +150,30 @@ runProgram prog = do
 runProgramWithDefault :: a -> [Op a] -> a
 runProgramWithDefault def prog = maybe def head (runProgram prog)
 
-rgepRun decoder a as = runProgramWithDefault a . F.toList . smap decoder $ as
+--rgepRun :: Decoder a -> a -> Ind32 -> RGEPExpressed a
+rgepRun :: Decoder a -> a -> Ind32 -> Expressed Ind32 (RGEPPhenotype a)
+rgepRun decoder a as =
+  let opList = F.toList . smap decoder $ as
+      treeless = runProgramWithDefault a opList 
+      tree = ExprTree undefined undefined
+  in
+    Expressed as $ RGEPPhenotype tree treeless
+
+{- Evaluation -}
+
+rgepEvalInd :: (a -> R Double) -> RGEPExpressed a -> R Double
+rgepEvalInd eval individual = eval . rgepTreeless . expression $ individual
+
+rgepEvaluation ::
+  (a -> R Double) ->
+  Decoder a ->
+  a ->
+  Pop32 ->
+  R (Pop (RGEPEval a))
+rgepEvaluation eval decoder def pop = do
+  let decoded = rgepRun decoder def <$> pop
+  fitnesses <- T.sequence $ smap (rgepEvalInd eval) decoded
+  return $ S.zipWith Evaled decoded fitnesses
 
 {- Express raw bits -}
 
@@ -150,7 +196,6 @@ decodeSymbols terms nonterms = let
   in \ w -> let index = fromIntegral $ w `shiftR` 1
                 symV = if testBit w 0 then nontermsV else termsV
                 in symV V.! (index `mod` V.length symV)
-
 
 {- RGEP PBIL -}
 {-
@@ -188,19 +233,19 @@ testRMHC = do
 -}
 
 {- Elitism -}
-elitism :: (MonadRandom m) =>
+elitism ::
   Int ->
-  (Pop (a, Double) -> m (Pop a)) -> 
-  Pop (a, Double) ->
-  m (Pop a)
+  (Pop (Evaled a b) -> R (Pop a)) -> 
+  Pop (Evaled a b) ->
+  R (Pop a)
 elitism k select pop = do
-  let (elite, common) = S.splitAt k $ S.sortBy (compare `on` snd) pop
+  let (elite, common) = S.splitAt k $ S.sortBy compareFitnesses pop
   selected <- select common
-  return (fmap fst elite S.>< selected)
+  return (genetics elite S.>< selected)
 
 
 {- RGEP -}
-rgep :: (MonadRandom m, Applicative m, Functor m) =>
+rgep ::
   Int -> --population size
   Int -> --individual size
   [Op a] -> --operators
@@ -211,16 +256,16 @@ rgep :: (MonadRandom m, Applicative m, Functor m) =>
   Prob -> -- tournament selection prob
   Int -> -- generations
   a -> -- default value
-  (a -> m Double) ->
-  m (Pop (Ind32, Double))
+  (a -> R Double) -> --fitness function
+  R (Pop (RGEPEval a))
 rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
   let bits = bitsUsed ops
       decoder = decode ops
-      rgepEvaluation = evaluation (eval . rgepRun decoder def)
+      evaluator pop = rgepEvaluation eval decoder def pop
   pop <- pop32 ps is bits
   let loop 0 pop = return pop
       loop gens pop = do
-        popEvaled <- rgepEvaluation pop
+        popEvaled <- evaluator pop
         popSelected <- elitism 1 (stochasticTournament pt) popEvaled
         popCrossed1 <- crossover pc1 popSelected
         popCrossed2 <- multipointCrossover pc2 2 popCrossed1
@@ -229,29 +274,29 @@ rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
         loop (pred gens) popRotated
     in do
           finalPopulation <- loop gens pop
-          rgepEvaluation finalPopulation
+          evaluator finalPopulation
 
 {- RGEP Conduit -}
-rgepConduit ::
-  Int -> --individual size
-  Int -> --population size
-  [Op a] -> --operators
-  Prob -> -- pm
-  Prob -> -- pr
-  Prob -> -- pc1
-  Prob -> -- pc2
-  Prob -> -- tournament selection prob
-  a -> -- default value
-  (a -> IO Double) ->
-  Conduit Pop32 IO Pop32
-rgepConduit is ps ops pm pr pc1 pc2 pt def eval = do
-  let bits = bitsUsed ops
-      decoder = decode ops
-      evaluator a = eval $ rgepRun decoder def a
-        in evaluationConduit evaluator =$=
-           elitismConduit 1 (stochasticTournament pt) =$=
-           crossoverConduit pc1 =$=
-           multipointCrossoverConduit pc2 2 =$=
-           pointMutationConduit pm is 1 =$=
-           rotationConduit pr
-
+--rgepConduit ::
+--  Int -> --individual size
+--  Int -> --population size
+--  [Op a] -> --operators
+--  Prob -> -- pm
+--  Prob -> -- pr
+--  Prob -> -- pc1
+--  Prob -> -- pc2
+--  Prob -> -- tournament selection prob
+--  a -> -- default value
+--  (a -> IO Double) ->
+--  Conduit Pop32 IO Pop32
+--rgepConduit is ps ops pm pr pc1 pc2 pt def eval = do
+--  let bits = bitsUsed ops
+--      decoder = decode ops
+--      evaluator a = eval $ rgepRun decoder def a
+--        in evaluationConduit evaluator =$=
+--           elitismConduit 1 (rIO . stochasticTournament pt) =$=
+--           crossoverConduit pc1 =$=
+--           multipointCrossoverConduit pc2 2 =$=
+--           pointMutationConduit pm is 1 =$=
+--           rotationConduit pr
+--

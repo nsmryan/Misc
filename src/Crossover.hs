@@ -2,7 +2,6 @@ module Crossover where
 
 import qualified Data.Sequence as S
 import qualified Data.Vector as V
-import Data.Random
 import Data.List
 import Data.Monoid
 import Data.Traversable
@@ -15,6 +14,7 @@ import Control.Parallel
 import Types
 import Utils
 import UtilsRandom
+import Common
 
 {- Crossover -}
 crossPair crossPoint (a, b) = 
@@ -32,8 +32,8 @@ crossApplyOn indices crossPoints population = let
   (firstHalf, secondHalf) = unpair crossedPairs
     in firstHalf S.>< secondHalf
 
-crossover :: (MonadRandom m, Functor m) =>
-  Prob -> Pop (Ind a) -> m (Pop (Ind a))
+crossover ::
+  Prob -> Pop (Ind a) -> R (Pop (Ind a))
 crossover p population = do
   let totalLength = S.length population `div` 2
       len = S.length $ population `S.index` 0
@@ -42,10 +42,10 @@ crossover p population = do
   return $ crossApplyOn indices crossPoints population
 
 crossoverVectWith ::
-  (Prob -> ((IndV a, IndV a) -> RVar (IndV a, IndV a))) ->
+  (Prob -> ((IndV a, IndV a) -> R (IndV a, IndV a))) ->
   Prob ->
   PopV (IndV a) ->
-  RVar (PopV (IndV a))
+  R (PopV (IndV a))
 crossoverVectWith crosser p population = do
   let len = V.length population
   let (front, back) = V.splitAt (len `div` 2) population
@@ -55,20 +55,20 @@ crossoverVectWith crosser p population = do
   return unpaired
 
 crossNaiveVect pc inds@(ind, ind') = do
-  p <- sample stdUniform
+  p <- r double
   if p < pc
     then do
-      point <- sample (uniform 0 (V.length ind)) 
+      point <- r $ intIn (0, V.length ind-1)
       let (front, back) = V.splitAt point ind
       let (front', back') = V.splitAt point ind'
       return (front `mappend` front', back' `mappend` back)
     else return inds
 
 crossNaiveVectPar pc inds@(ind, ind') = do
-  p <- sample stdUniform
+  p <- r double
   if p < pc
     then do
-      point <- sample (uniform 0 (V.length ind)) 
+      point <- r $ intIn (0, V.length ind-1)
       let (front, back) = V.splitAt point ind
       let (front', back') = V.splitAt point ind'
       let crossed  = front `mappend` front'
@@ -80,10 +80,10 @@ crossVectSeq = crossoverVectWith crossNaiveVect
 crossVectPar = crossoverVectWith crossNaiveVectPar
 
 crossoverSeqWith ::
-  (Prob -> (Ind a, Ind a) -> RVar (Ind a, Ind a)) ->
+  (Prob -> (Ind a, Ind a) -> R (Ind a, Ind a)) ->
   Prob ->
   Pop (Ind a) ->
-  RVar (Pop (Ind a))
+  R (Pop (Ind a))
 crossoverSeqWith crosser p population = do
   let len = S.length population
   let (front, back) = S.splitAt (len `div` 2) population
@@ -96,10 +96,10 @@ crossoverSeq = crossoverSeqWith crossSeq
 crossoverPar = crossoverSeqWith crossPar
 
 crossSeq pc inds@(ind, ind') = do
-  p <- sample stdUniform
+  p <- r double
   if p < pc
     then do
-      point <- sample (uniform 0 (S.length ind)) 
+      point <- r $ intIn (0, S.length ind-1)
       let (front, back) = S.splitAt point ind
       let (front', back') = S.splitAt point ind'
       let crossInd = front `mappend` front' 
@@ -108,10 +108,10 @@ crossSeq pc inds@(ind, ind') = do
     else return inds
 
 crossPar pc inds@(ind, ind') = do
-  p <- sample stdUniform
+  p <- r double
   if p < pc
     then do
-      point <- sample (uniform 0 (S.length ind)) 
+      point <- r $ intIn (0, S.length ind-1)
       let (front, back) = S.splitAt point ind
       let (front', back') = S.splitAt point ind'
       let crossInd = front `mappend` front' 
@@ -148,11 +148,11 @@ multipointCrossoverPure crossIndices crossPoints pop = let
   (firstHalf, secondHalf) = unpair result
   in firstHalf S.>< secondHalf
 
-multipointCrossover :: (Functor m, MonadRandom m) =>
+multipointCrossover ::
   Prob -> -- probability of crossover
   Int -> --number of cross points
   Pop (Ind a) -> --population to crossover
-  m (Pop (Ind a))
+  R (Pop (Ind a))
 multipointCrossover pc points pop = do
   let indLen = S.length $ pop `S.index` 0
       popLen = S.length pop
