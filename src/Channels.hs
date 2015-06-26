@@ -8,7 +8,7 @@ import Pipes
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Concurrent.STM.TMVar
+--import Control.Concurrent.STM.TMVar
 
 import Data.Monoid
 

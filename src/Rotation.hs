@@ -2,7 +2,7 @@ module Rotation where
 
 import qualified Data.Sequence as S
 import Data.Random
-import Data.Conduit
+--import Data.Conduit
 
 import Control.Monad.IO.Class
 

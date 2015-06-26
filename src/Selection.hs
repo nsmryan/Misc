@@ -7,7 +7,7 @@ import Data.Function
 import Data.List
 import qualified Data.Traversable as T
 import qualified Data.Foldable as F
-import Data.Conduit
+--import Data.Conduit
 
 import Control.Monad.IO.Class
 

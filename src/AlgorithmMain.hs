@@ -5,6 +5,7 @@ import Prelude as P
 
 import Data.Configurator as C
 import qualified Data.Foldable as F
+import qualified Data.Sequence as S
 
 import Control.Applicative
 
@@ -14,6 +15,8 @@ import Diagrams.Backend.SVG
 
 import Options.Applicative as OPT
 
+import Pipes as P
+
 import HealMonad
 import Common
 import UtilsRandom
@@ -21,8 +24,10 @@ import Utils
 import GA
 import RGEP
 import PipeAlgorithms
+import PipeOperators
 import Evaluation
 import Types
+import Channels
 
 
 
@@ -96,7 +101,22 @@ processGA fitnessFunction config = do
   --rIO $ parallelGA 50 1000 100 0.01 0.6 ones
   --runApp config $ geneticAlgorithmApp ones
   --rIO . runStage' 0 . cycleNTimes 1000 $ simpleStage 
+
+  --initialPopulation <- rIO $ S.replicateM ps $ S.replicateM is $ r $ word32In (0, 1)
+  initialPopulation <- rIO $ pop32 ps is 1
+
+  mutation    <- runBlock config pmBlock
+  crossover   <- runBlock config crossoverBlock
+  selection   <- runBlock config tournamentBlock
+  fitnessPipe <- runBlock config (fitnessBlock fitnessFunction)
+
+
+  rIO $ runStage' initialPopulation $ cycleNTimes gens $ stage $ 
+             (fitnessPipe >-> logFitness >-> selection >-> mutation >-> crossover)
+
   rIO $ pipedGA ps is gens pm pc fitnessFunction
+
+    
 
 {- Configuration Files -}
 

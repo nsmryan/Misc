@@ -18,6 +18,7 @@ import Evaluation
 
 
 
+--TODO replace init by pop32
 pipedGA ps is gens pm pc fitness = do
   initialPopulation <- S.replicateM ps $ S.replicateM is $ r $ word32In (0, 1)
   runStage' initialPopulation $ cycleNTimes gens $ geneticAlgorithmP ps is gens pm pc fitness

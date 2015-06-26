@@ -7,7 +7,7 @@ import Data.List.Split
 import qualified Data.Traversable as T
 import qualified Data.Foldable as F
 import qualified Data.Vector as V
-import Data.Conduit
+--import Data.Conduit
 
 import Control.Applicative
 import Control.Monad.IO.Class
@@ -24,7 +24,7 @@ import Selection
 --import PBIL --TODO add back in
 --import RMHC -- TODO add back in
 import Evaluation
-import Conduit
+--import Conduit
 
 
 {- Operators -}

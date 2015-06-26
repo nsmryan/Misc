@@ -15,7 +15,7 @@ import Data.Configurator.Types
 import Data.Word
 import Data.Random
 import Data.Monoid
-import Data.Conduit
+--import Data.Conduit
 import Data.Function
 
 import Math.Probable.Random
@@ -142,7 +142,7 @@ instance (NFData a, NFData b) => NFData (Evaled a b) where rnf = genericRnf
 {- Application Blocks -}
 --type Block a b = Pipe a b (ReaderT Config R) ()
 --type Block a b = ReaderT Config IO (Pipe a b R ())
-type Block a b = Reader Config (Pipe a b R ())
+type Block a b = ReaderT Config IO (Pipe a b R ())
 
 {- Algorithm Types -}
 data RGEP d p = RGEP

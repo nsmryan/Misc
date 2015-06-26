@@ -21,7 +21,7 @@ import qualified Data.Foldable as F
 import Data.Function
 import qualified Data.Bits as B
 import Data.Word
-import Data.Conduit
+--import Data.Conduit
 
 import PointMutation
 import Utils
@@ -30,7 +30,7 @@ import RGEP
 import Types
 import UtilsRandom
 import Evaluation
-import Conduit
+--import Conduit
 import GA
 
 

@@ -20,6 +20,8 @@ import Control.Monad.Trans.Reader
 
 import Debug.Trace
 
+import System.IO
+
 import Common
 import Types
 import PointMutation
@@ -31,12 +33,18 @@ import UtilsRandom
 import Rotation
 
 
+--TODO Should use Evaled for fitness pipes
+
 --element pipe -> sequence pipe
 --function -> on Locations, pass others
 
 traced a = trace (show a) a
 
 {- Utilities -}
+
+a #-# b = liftM2 (>->) a b
+
+runBlock config block = runReaderT block config 
 
 lookupConfig def nam = do
   config <- ask 
@@ -142,6 +150,13 @@ testMutation =
 testWith argument pipe = runEffect $ (forever (yield argument)) >-> pipe >-> (await >>= return)
   
 {- Crossover -}
+
+crossoverBlock :: Block Pop32 Pop32
+crossoverBlock = do
+  pc <- lookupConfig 0.06 "pc"
+  is <- lookupConfig (error "individual size was not provided") "is"
+  return $ crossoverP pc is
+
 crossoverIndividualsP prob indLength =
   pairUpP >->
   withP prob >->
@@ -190,6 +205,13 @@ testCrossover =
   testWith testPopulation (crossoverP 1 10)
 
 {- Selection -}
+
+tournamentBlock :: Block (S.Seq (a, Double)) (S.Seq a)
+tournamentBlock = do
+  pr <- lookupConfig (error "population size not provided") "ps"
+  tournSize <- lookupConfig (error "Tournament size not provided") "is"
+  return $ tournamentSelectionP pr tournSize
+
 data Tournament a = Tournament a a
 
 tournamentSelectionP :: Int -> Int -> Pipe (S.Seq (a, Double)) (S.Seq a) R r
@@ -229,6 +251,13 @@ testTournament = let population = S.fromList [(S.fromList [0], 5), (S.fromList [
   in testWith population (tournamentSelectionP (S.length population) 2)
 
 {- Rotation -}
+
+rotationBlock :: Block Pop32 Pop32
+rotationBlock = do
+  pr <- lookupConfig 0.06 "pr"
+  is <- lookupConfig (error "individual size was not provided") "is"
+  return $ rotationP pr is
+
 rotationP prob indLength =
   withP prob >->
   whenChosen (rotateOp indLength)
@@ -291,6 +320,29 @@ keepK k best = do
   let newBest = kFittest k population
   yield $ F.foldl ensureElem population best
   keepK k newBest
+
+{- Fitness -}
+
+fitnessBlock fitnessFunction = do
+  ps <- lookupConfig (error "population size not provided") "ps"
+  return $ for cat each >-> (for cat $ \ ind -> yield (ind, fitnessFunction ind)) >-> collect ps
+
+--TODO should get a directory to start logging into.
+logFitness :: Pipe (S.Seq (Ind32, Double)) (S.Seq (Ind32, Double)) R r
+logFitness = do
+  hd <- liftIO $ openFile "fitness.log" WriteMode
+  liftIO $ hPutStr hd "average fitness, best fitness\n"
+  logFitness' hd
+
+logFitness' hd = do
+  pop <- await
+  let best = snd $ fittestIndividual pop
+  let fits = fmap snd pop
+  let avg = F.sum fits / (fromIntegral $ S.length fits)
+  liftIO $ hPutStr hd $ (show avg) ++ ", " ++ (show best) ++ "\n"
+  yield pop
+  logFitness' hd
+  
 
 {- Utils -}
 data Chunk f a = Piece (f a)
