@@ -1,16 +1,18 @@
 Next:
-  Config files- get on command line, pass through to reader monad.
-    use for operators parameters, algorithm parameters, eventually
-    problem type and data source, logging flags/file names
-
-  Logging- config file determines if value is monitored. if so, uses a global logging
-    server running in a seperate thread that takes loggables and log names and outputs
-    them to files.
+  chart for fitness
+  combine with bitmap diagram
+  add more blocks
+  clean up initial population and running generation
 
   Generalize chart generation:
     read log files out. match chart options to log file names, read data, produce
       result picture, and merge pictures into result file
 
+Run multiple algorithms with configs and compare with charts
+
+generalize operators
+
+tsp with greedy fitness function idea- try 1d, 2d, 3d, maybe more
 
 Visualizations:
   best ind diff (or weighted by normalized fitness)-

@@ -15,6 +15,7 @@ import Data.HashMap.Strict hiding (map)
 import Data.Colour.Palette.ColorSet
 import Data.Colour.SRGB as RGB
 import Data.Configurator as C
+import Data.Default
 
 import Diagrams.Prelude hiding ((<>))
 import Diagrams.Backend.Cairo
@@ -37,7 +38,9 @@ import System.Remote.Monitoring.Statsd
 
 import Options.Applicative as OPT
 
-import Graphics.GChart
+--import Graphics.GChart
+import Graphics.Rendering.Chart
+import Graphics.Rendering.Chart.Backend.Diagrams
 
 import RGEP
 import Types
@@ -160,12 +163,12 @@ miscMain = do
   inc algsRun
 
   --Create Chart
-  let chart = makeChart [gaResults, rgepResults]
+  --let chart = makeChart [gaResults, rgepResults]
 
-  let url = getChartUrl chart
-  print . chartData . getChartData $ chart
+  --let url = getChartUrl chart
+  --print . chartData . getChartData $ chart
 
-  when (chartResults options) $ runCommand_ ("firefox \"" ++ url ++ "\"")
+  --when (chartResults options) $ runCommand_ ("firefox \"" ++ url ++ "\"")
 
   when (printResults options) $ do
     statistics <- sampleAll $ serverMetricStore server 
@@ -177,6 +180,7 @@ miscMain = do
 
 
 {- Chart stuff -}
+{-
 makeChart ds = do setChartType BarVerticalGrouped
                   setChartTitle "Algorithm Comparison"
                   setChartSize 500 400
@@ -190,7 +194,7 @@ makeChart ds = do setChartType BarVerticalGrouped
                   --this repeats after 24 data sets
                   mapM_ (addColor . hexColor . rybColor) [0..length ds - 1]
                   setLegend $ legend algorithms
-
+-}
 hexColor :: (RGB.Colour Double) -> String
 hexColor color = let (RGB r g b) = toSRGB24 color in printf "%02X%02X%02X" r g b
 

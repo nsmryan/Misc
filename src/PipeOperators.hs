@@ -12,11 +12,13 @@ import qualified Data.Sequence as S
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Data.Configurator as C
+import Data.Maybe
 
 import Control.Monad.Identity
 import Control.Monad
 import Control.Applicative
 import Control.Monad.Trans.Reader
+import Control.Concurrent.Async
 
 import Debug.Trace
 
@@ -323,16 +325,17 @@ keepK k best = do
 
 {- Fitness -}
 
+fitnessBlock :: (a -> Double) -> Block (S.Seq a) (S.Seq (a, Double))
 fitnessBlock fitnessFunction = do
   ps <- lookupConfig (error "population size not provided") "ps"
   return $ for cat each >-> (for cat $ \ ind -> yield (ind, fitnessFunction ind)) >-> collect ps
 
 --TODO should get a directory to start logging into.
-logFitness :: Pipe (S.Seq (Ind32, Double)) (S.Seq (Ind32, Double)) R r
+logFitness :: Pipe (S.Seq (Ind32, Double)) (S.Seq (Ind32, Double)) R ()
 logFitness = do
   hd <- liftIO $ openFile "fitness.log" WriteMode
   liftIO $ hPutStr hd "average fitness, best fitness\n"
-  logFitness' hd
+  asyncTee $ logFitness' hd
 
 logFitness' hd = do
   pop <- await
@@ -340,9 +343,35 @@ logFitness' hd = do
   let fits = fmap snd pop
   let avg = F.sum fits / (fromIntegral $ S.length fits)
   liftIO $ hPutStr hd $ (show avg) ++ ", " ++ (show best) ++ "\n"
-  yield pop
   logFitness' hd
   
+{- Flow Control -}
+gensBlock :: Block a a 
+gensBlock = do 
+  gens <- lookupConfig (error "generations not provided") "gens"
+  return (go gens) where
+    go :: Int -> Pipe a a R ()
+    go 0 = return ()
+    go n = do
+      a <- await
+      yield a
+      go (n-1)
+
+cycleWith a pipe = do
+  (output, input) <- liftIO $ spawn (Bounded 1)
+  (finalOutput, finalInput) <- liftIO $ spawn (Newest 1)
+  thread <- async $ rIO $ runEffect $ (fromInput input) >-> pipe >-> toOutput (output <> finalOutput)
+  atomically $ send output a
+  wait thread
+  (Just result) <- liftIO $ atomically $ recv finalInput
+  return result
+
+asyncTee consumer = do
+  (output, input) <- liftIO $ spawn Unbounded
+  liftIO $ async $ rIO $ runEffect $ (fromInput input) >-> consumer 
+  P.tee $ toOutput output
+
+
 
 {- Utils -}
 data Chunk f a = Piece (f a)

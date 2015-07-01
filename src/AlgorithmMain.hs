@@ -6,6 +6,9 @@ import Prelude as P
 import Data.Configurator as C
 import qualified Data.Foldable as F
 import qualified Data.Sequence as S
+import qualified Data.ByteString.Lazy as BL
+import Data.Default
+import Data.Csv as CSV
 
 import Control.Applicative
 
@@ -15,7 +18,12 @@ import Diagrams.Backend.SVG
 
 import Options.Applicative as OPT
 
+import Graphics.Rendering.Chart
+import Graphics.Rendering.Chart.Backend.Diagrams
+
 import Pipes as P
+--import Pipes.Csv
+import qualified Pipes.ByteString as PB
 
 import HealMonad
 import Common
@@ -47,6 +55,16 @@ line bitsUsed bs = hcat $ map (blockGroup bitsUsed) bs
 
 --grid :: (Bits b) => Int -> [[b]] -> Diagram b R2
 grid bitsUsed bss = vcat $ map (line bitsUsed) bss
+
+{- Charts stuff -}
+addIndices = zip [0..]
+plot = toPlot $ (def :: PlotLines Double Double)
+           & plot_lines_title .~ "test line"
+           & plot_lines_values .~ [(addIndices [0..10])]
+layout = (def :: Layout Double Double)
+             & layout_title .~ "Test Chart"
+             & layout_plots .~ [plot]
+
 
 
 {- RGEP Main -}
@@ -87,16 +105,24 @@ gaMain fitnessFunction = do
 
   {- Post-Processing: Generate Data -}
   print pop 
+
   let bitmap = grid 1 $ F.toList (fmap F.toList pop)
   renderCairo "bits.png" (Width 400) bitmap
   renderSVG "bits.svg" (Width 400) bitmap
 
+  --fitnessCSV <- BL.readFile "fitness.log"
+  --case CSV.decode HasHeader fitnessCSV of
+  --  Left err -> putStrLn err
+  --  Right fitnessData -> do
+  --    renderableToFile def "test.svg" $ toRenderable layout
+
+
 processGA fitnessFunction config = do
-  pm   <- C.lookupDefault 0.001 config "pm"
-  pc   <- C.lookupDefault 0.6   config "pc"
-  gens <- C.lookupDefault 100   config "gens"
-  ps   <- C.lookupDefault 50    config "ps"
-  is   <- C.lookupDefault 100   config "is"
+  pm   <- C.lookupDefault (0.001 :: Double) config "pm"
+  pc   <- C.lookupDefault (0.6   :: Double) config "pc"
+  gens <- C.lookupDefault (100   :: Int)    config "gens"
+  ps   <- C.lookupDefault (50    :: Int)    config "ps"
+  is   <- C.lookupDefault (100   :: Int)    config "is"
 
   --rIO $ parallelGA 50 1000 100 0.01 0.6 ones
   --runApp config $ geneticAlgorithmApp ones
@@ -109,12 +135,12 @@ processGA fitnessFunction config = do
   crossover   <- runBlock config crossoverBlock
   selection   <- runBlock config tournamentBlock
   fitnessPipe <- runBlock config (fitnessBlock fitnessFunction)
+  generations <- runBlock config gensBlock
 
+  cycleWith initialPopulation $
+    (fitnessPipe >-> logFitness >-> generations >-> selection >-> mutation >-> crossover)
 
-  rIO $ runStage' initialPopulation $ cycleNTimes gens $ stage $ 
-             (fitnessPipe >-> logFitness >-> selection >-> mutation >-> crossover)
-
-  rIO $ pipedGA ps is gens pm pc fitnessFunction
+  --rIO $ pipedGA ps is gens pm pc fitnessFunction
 
     
 

@@ -101,9 +101,14 @@ library
                  comonad < 4.3,
                  deepseq-generics,
                  deepseq,
+                 data-default >= 0.5,
+                 cassava,
+                 bytestring,
 
                  --Pipes
                  pipes < 4.2,
+                 pipes-csv,
+                 pipes-bytestring,
 
                  --Auto
                  --auto >= 0.4.0.0,
@@ -123,14 +128,14 @@ library
 
                  --charts
                  Chart,
-                 Chart-diagrams,
+                 Chart-diagrams >= 1.4,
 
                  --parellelism
                  parallel,
                  --stm  < 2.5,
                  --stm-chans < 4.0,
                  --stm-conduit <= 2.5.0,
-                 pipes-concurrency < 3,
+                 pipes-concurrency >= 2.0.2 && < 3,
                  async < 2.1,
 
                  --Randomness
@@ -246,7 +251,11 @@ Executable misc
                  probable < 0.2.0.0,
                  configurator < 0.4.0.0,
                  split,
-                 hs-gchart
+                 hs-gchart,
+                 Chart,
+                 Chart-diagrams >= 1.4,
+                 data-default >= 0.5,
+                 cassava
 
   main-is: Main.hs
 
