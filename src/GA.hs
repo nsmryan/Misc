@@ -1,5 +1,7 @@
 module GA where
 
+import Data.Random
+
 import Types
 import UtilsRandom
 import Selection
@@ -14,28 +16,28 @@ oneBit = 1
 
 {- Genetic Algorithms -}
 geneticAlgorithm ::
+  (Monad m) =>
   Int -> -- Population size
   Int -> -- Individual size
   Int -> -- Generations
   Prob -> -- pm
   Prob -> -- pc
-  (Ind32 -> R Double) -> -- Fitness Evaluation
-  R (Pop (Evaled Ind32 Ind32))
-geneticAlgorithm ps is gens pm pc eval = do
+  (Ind32 -> a) -> -- Expression to type "a"
+  (a -> RVarT m Double) -> -- Fitness Evaluation
+  RVarT m (Pop (Evaled Ind32  a))
+geneticAlgorithm ps is gens pm pc expr eval = do
   initialPopulation <- pop32 ps is oneBit
   let loop 0 pop = return pop
       loop gens pop = do
-        popEvaled <- evaluation (evalInd eval) (gaExpressed pop)
+        popExpressed <- return $ expressPopWith expr pop
+        popEvaled <- evaluationM eval popExpressed
         popSelected <- tournamentSelection 2 popEvaled
-        popCrossed <- crossover pc popSelected
+        popCrossed <- singlePointCrossoverM pc popSelected
         popMutated <- pointMutation pm is oneBit popCrossed
         loop (pred gens) popMutated
     in
       do finalPopulation <- loop gens initialPopulation
-         evaluation (evalInd eval) (gaExpressed finalPopulation)
+         evaluationM eval (expressPopWith expr finalPopulation)
 
-gaExpress :: a -> Expressed a a
-gaExpress ind = Expressed ind ind
-gaExpressed pop = fmap gaExpress pop
 
 

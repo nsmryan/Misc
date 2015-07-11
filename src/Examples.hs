@@ -10,8 +10,6 @@ import Control.Monad.Trans.State.Lazy
 
 import Text.Printf
 
-import System.Random.MWC.Monad as MWC
-
 import Data.List
 import Data.Ord
 import Data.Word
@@ -21,7 +19,6 @@ import qualified Data.Foldable as F
 import Data.Function
 import qualified Data.Bits as B
 import Data.Word
---import Data.Conduit
 
 import PointMutation
 import Utils
@@ -30,12 +27,12 @@ import RGEP
 import Types
 import UtilsRandom
 import Evaluation
---import Conduit
 import GA
 
 
 
 
+{-
 --TODO turn these tests into properties/unit test cases
 testDecode = do
   let termIndices = map (`B.shiftL` 1) [0..5]
@@ -47,8 +44,8 @@ testDecode = do
   print $ map (decode arithOps) nontermIndices
 
 testStacks = do
-      let prog = [oneTerm, twoTerm, plusOp, dup, timesOp, twoTerm] 
-      let progUnderflow = [oneTerm, twoTerm, plusOp, timesOp] 
+      let prog = [oneTerm, twoTerm, plusOp, dup, timesOp, twoTerm]
+      let progUnderflow = [oneTerm, twoTerm, plusOp, timesOp]
       print $ "safe program"
       print $ map name prog
       print $ "safe program, filtered"
@@ -121,4 +118,4 @@ testRGEPConduit = do
   printf "fitness = %f\n" fit
 
 -}
-
+-}

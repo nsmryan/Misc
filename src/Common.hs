@@ -9,7 +9,7 @@ module Common (
   module Debug.Trace,
   module Control.Arrow,
   module Control.Monad,
-  module Math.Probable
+  --module Math.Probable
 ) where
 
 import Data.Word
@@ -19,8 +19,6 @@ import Data.Bits
 import Data.List.Split
 import Data.Function
 import Data.Random
-
-import Math.Probable
 
 import Text.Printf
 

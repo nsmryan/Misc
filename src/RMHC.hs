@@ -13,12 +13,13 @@ import PointMutation
 {- Random Mutation Hill Climbing RGEP -}
 
 rmhc ::
+  (Monad m) =>
   Int -> --Size of individuals
   Int -> --Bits per locus
   Int -> --Number of generations
   Prob -> --Probability of mutation
-  (Ind32 -> R Double) -> --Evaluator
-  R (Ind32, Double)
+  (Ind32 -> RVarT m Double) -> --Evaluator
+  RVarT m (Ind32, Double)
 rmhc is bits gens mutRate eval = do
   initGenes <- ind32 is bits
   fitness <- eval initGenes

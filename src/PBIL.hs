@@ -15,10 +15,11 @@ import Types
 import Common
 
 {- Population Based Incremental Learning -}
-genInd :: (T.Traversable t) =>
-  t Prob -> R (t Bool)
+genInd ::
+  (Monad m, T.Traversable t) =>
+  t Prob -> RVarT m (t Bool)
 genInd = T.mapM $ \ p -> do
-  p' <- r double
+  p' <- stdUniformT
   return $ p' > p
 
 b2d :: Bool -> Double
@@ -33,11 +34,12 @@ adjustProb learn neglearn p minBit maxBit =
 
 mutIBPL probs' mutRate mutShift = S.zipWith3 mut probs' <$> bs <*> ps where
   len = S.length probs'
-  ps = S.replicateM len $ r $ double
-  bs = S.replicateM len $ r $ double
+  ps = S.replicateM len $ stdUniformT
+  bs = S.replicateM len $ stdUniformT
+  mut :: Double -> Double ->  Double -> Double
   mut p b p' = let b' = fromIntegral . round $ b in
     if p' < mutRate
-      then (p * (1 - mutShift)) + (b' * mutShift) 
+      then (p * (1 - mutShift)) + (b' * mutShift)
       else p
 
 pbil' ps learn neglearn mutRate mutShift express evaluate (best, probs) = do
@@ -52,7 +54,7 @@ pbil' ps learn neglearn mutRate mutShift express evaluate (best, probs) = do
   return (best', probs'')
 
 pbil ps is gens learn neglearn mutRate mutShift express eval = do
-  let probs = S.replicate is 0.5
+  let probs = S.replicate is (0.5 :: Double)
   initialBest <- genInd probs
   ((finalBest, fit), probs) <- timesM gens ((initialBest, eval $ express initialBest), probs) $ pbil' ps learn neglearn mutRate mutShift express eval
   return (express finalBest, fit, probs)
@@ -64,6 +66,6 @@ testPBIL = do
   let ps = 20
   let is = 100
   let gens = 1000
-  (ind, fit,  probs) <- rIO $ pbil ps is gens 0.05 0.01 0.2 0.05 id maxValue
+  (ind, fit,  probs) <- rIO $ pbil ps is gens 0.05 0.01 (0.2 :: Double) 0.05 id maxValue
   print $ negate fit
 

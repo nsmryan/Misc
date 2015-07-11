@@ -16,19 +16,20 @@ import Data.Colour.Palette.ColorSet
 import Data.Colour.SRGB as RGB
 import Data.Configurator as C
 import Data.Default
+import Data.Random
 
 import Diagrams.Prelude hiding ((<>))
-import Diagrams.Backend.Cairo
+--import Diagrams.Backend.Cairo
 
 import Control.Monad
 import Control.Applicative
 import Control.Arrow
 import Control.Concurrent.Async
+import Control.Concurrent
 
 import Text.Printf
 
 import System.Process
-import System.Random.MWC.Monad
 import System.Remote.Monitoring
 import System.Remote.Counter
 import System.Metrics.Distribution as MD
@@ -59,12 +60,11 @@ import AlgorithmMain
 --algorithms
 
 trainingSet = [(i, i) | i <- [0..50.0]]
---main = rgepMain (return . errorOn trainingSet)
+main = rgepMain polyOps ((1/) . abs . errorOn trainingSet . rgepTreeless . expression) (const 0)--(errorOn trainingSet)
 
 findRandomSequence = undefined
 
-main = do
-  gaMain ones
+--main = gaMain id sumOnes
 
 maxSizeSimpleEncoding = 61
 
@@ -82,25 +82,28 @@ gens = 100
 problemSizes = map (100*) [1..2] --[10, 100, 1000]
 algorithms = ["GA", "RGEP"]
 
-rgepOps is = bitSetOps is 
+rgepOps is = bitSetOps is
 
 allPairs as bs = concat $ allPairs' as bs
 allPairs' [] bs = []
 allPairs' as [] = []
 allPairs' (a:as) bs = map (\b -> (a,b)) bs : allPairs' as bs
 
-evalGA bits ind = return . fromIntegral . F.sum . fmap fromEnum $ S.zipWith (==) bits ind
-runGA bits is = geneticAlgorithm ps is gens pm pc1 (evalGA bits)
+evalGA bits ind =
+  let fitness = fromIntegral . F.sum . fmap fromEnum $ S.zipWith (==) bits ind
+  in return $ fitness
 
-rgepEval bits w = return . fromIntegral . popCount $ (w .&. bits)
-runRGEP bits is = let bitsNum = fromIntegral is in
-                 rgep ps (is*3) (rgepOps is) pm pc1 pc2 prot pt gens 0 (rgepEval bits)
+runGA bits is = geneticAlgorithm ps is gens pm pc1 id (evalGA bits)
+
+rgepEval bits w = fromIntegral . popCount $ (w .&. bits)
+runRGEP bits is = let bitsNum = fromIntegral is
+  in rgep ps (is*3) (rgepOps is) pm pc1 pc2 prot pt gens 0 (rgepEval bits)
 
 adjustFitness :: Int -> Double -> Int
 adjustFitness problemSize fitness = round $ maxSizeSimpleEncoding * (fitness / fromIntegral problemSize)
 
-bitVector :: Int -> R (V.Vector Bool)
-bitVector size = V.fromList <$> (replicateM size $ r bool)
+bitVector :: Int -> RVarT m (V.Vector Bool)
+bitVector size = V.fromList <$> (replicateM size stdUniformT)
 
 tobits :: V.Vector Bool -> Integer
 tobits bs = V.ifoldl' bitter 0 bs where
@@ -153,12 +156,12 @@ miscMain = do
   --Run RGEP
   putStrLn "Running RGEP"
   L.set activityName "RGEP"
-  rgepPop <- mapM rIO [runRGEP bits i | (i, bits) <- zip problemSizes targetBits]
-  let rgepResults = [adjustFitness problemSize (bestFitness pop) | (pop, problemSize) <- zip rgepPop problemSizes]
+  --rgepPop <- mapM rIO [runRGEP bits i | (i, bits) <- zip problemSizes targetBits]
+  --let rgepResults = [adjustFitness problemSize (bestFitness pop) | (pop, problemSize) <- zip rgepPop problemSizes]
 
   --print $ map (\ (pop, is) -> first (rgepRun (decode (rgepOps is)) 0) $ bestInd pop) $ zip rgepPop problemSizes
-  print rgepResults
-  mapM (MD.add rgepDist) $ map bestFitness rgepPop
+  --print rgepResults
+  --mapM (MD.add rgepDist) $ map bestFitness rgepPop
 
   inc algsRun
 
@@ -171,30 +174,14 @@ miscMain = do
   --when (chartResults options) $ runCommand_ ("firefox \"" ++ url ++ "\"")
 
   when (printResults options) $ do
-    statistics <- sampleAll $ serverMetricStore server 
+    statistics <- sampleAll $ serverMetricStore server
     mapM_ print $ zip (keys statistics) (elems statistics)
 
-  renderCairo "bits.png" (Width 400) $ line 1 $ F.toList $ head wordVects
+  --renderCairo "bits.png" (Width 400) $ line 1 $ F.toList $ head wordVects
   putStrLn "Done"
 
 
 
-{- Chart stuff -}
-{-
-makeChart ds = do setChartType BarVerticalGrouped
-                  setChartTitle "Algorithm Comparison"
-                  setChartSize 500 400
-                  setDataEncoding simple
-                  addAxis $ makeAxis { axisType = AxisLeft }
-                  addAxis $ makeAxis {
-                                        axisType = AxisBottom
-                                     ,  axisLabels = Just $ map show problemSizes
-                                     }
-                  mapM_ addChartData ds
-                  --this repeats after 24 data sets
-                  mapM_ (addColor . hexColor . rybColor) [0..length ds - 1]
-                  setLegend $ legend algorithms
--}
 hexColor :: (RGB.Colour Double) -> String
 hexColor color = let (RGB r g b) = toSRGB24 color in printf "%02X%02X%02X" r g b
 

@@ -1,21 +1,30 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 module PipeOperators where
 
 
 import Pipes
 import qualified Pipes.Prelude as P
 import Pipes.Concurrent
+import qualified Pipes.Safe.Prelude as PS
+import Pipes.Safe
+import qualified Pipes.ByteString as PB
 
-import Math.Probable
+--import Math.Probable
 
 import qualified Data.Sequence as S
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Data.Configurator as C
 import Data.Maybe
+import Data.List
+import Data.String
+import Data.Random
+import qualified Data.ByteString.Lazy as BL
 
 import Control.Monad.Identity
 import Control.Monad
+import Control.Monad.Catch
 import Control.Applicative
 import Control.Monad.Trans.Reader
 import Control.Concurrent.Async
@@ -26,13 +35,9 @@ import System.IO
 
 import Common
 import Types
-import PointMutation
-import Crossover
 import Utils
-import Selection
 import Channels
 import UtilsRandom
-import Rotation
 
 
 --TODO Should use Evaled for fitness pipes
@@ -44,243 +49,36 @@ traced a = trace (show a) a
 
 {- Utilities -}
 
-a #-# b = liftM2 (>->) a b
 
-runBlock config block = runReaderT block config 
+runBlock config block = runReaderT block config
 
 lookupConfig def nam = do
-  config <- ask 
+  config <- ask
   lift $ C.lookupDefault def config nam
 
---locusP :: (Monad m, Foldable f) => Pipe (f a) a m r
-locusP prob size pipe =
-  for cat each >-> locusP' prob size pipe >-> collect size
-
-locusP' prob size pipe =
-  probablyDeep prob size >-> pipe >-> reconstitute
-
-{- Point Mutation -}
-data PMChunk f a = PMPiece (f a)
-                 | PMLocation a [Int]
-                 | PMFlush deriving (Show, Eq)
-
-
-pmBlock :: Block Pop32 Pop32
-pmBlock = do
-  pm <- lookupConfig 0.001 "pm"
-  ps <- lookupConfig (error "population size not provided") "ps"
-  geneSize <- lookupConfig (error "gene size not provided") "bitsUsed"
-  return $ pmPopulationP ps pm geneSize
-
-
-pmPopulationP ps pm geneSize = --locusP pm geneSize (pointMutationP pm geneSize)
-  (for cat each) >-> (pointMutationP pm geneSize) >-> (collect ps)
-
-pointMutationP :: Double -> Int -> Pipe Ind32 Ind32 R r
-pointMutationP prob geneSize = --locusP prob geneSize pointMutationP'
-  probablyDeep prob geneSize >-> pointMutationP' >-> reconstitute
-
-
---data LayerChunk f a = LayerChunk (f a)
---                    | LayerLocation a
---                    | LayerEnd deriving (show)
---
---selectInLayer size = do
---  undefined
---
---layeredMapR prob ss = 
---  let layerSizes = init $ scanr (*) 1 ss
---      selectionPipe = foldl (>->) id $ map selectInLayer layerSizes
---  in
---    do
---      loc <- lift $ r $ geometric0 prob
---      selectionPipe loc
-
-
---probablyDeep prob locationSize innerPipe = forever $ do
---  loc <- lift $ r $ geometric0 prob
---  let (skips, inner) = loc `divMod` locationSize
---  pass skips
---  piece <- await
---  innerPipe piece
-
-probablyDeep prob locationSize = do
-  loc <- lift $ r $ geometric0 prob
-  piece <- await
-  probablyDeep' prob locationSize loc piece
-
-probablyDeep' prob size loc ind = do
-  let len = S.length ind * size 
-  if len > loc
-    then do
-      let (gene, locus) = loc `divMod` size
-          (top, bottom) = S.splitAt gene ind
-      yield . PMPiece $ top
-      loc' <- processPiece prob size locus (S.index bottom 0) []
-      probablyDeep' prob size loc' $ S.drop 1 bottom
-    else do
-      yield . PMPiece $ ind
-      yield PMFlush
-      ind' <- await
-      probablyDeep' prob size (loc - len) ind'
-
-processPiece prob geneSize locusLoc gene ls = do
-  loc' <- lift $ r $ geometric0 prob
-  let left = geneSize - locusLoc
-  if loc' < left
-    then do
-      let withinGene = loc' + locusLoc
-          ls' = (withinGene:ls)
-      processPiece prob geneSize withinGene gene ls'
-    else do
-      yield $ PMLocation gene (locusLoc:ls)
-      return $ loc'-left
-
-pointMutationP' = forever $ do
-  chunk <- await
-  case chunk of
-    PMLocation a is -> do
-      yield . Location . mutateLocus is $ a
-    PMPiece piece -> yield . Piece $ piece
-    PMFlush -> yield Flush
-
-testMutation =
-  runEffect $ (forever $ yield (S.replicate 1 0)) >->
-              pointMutationP 0.5 8 >->
-              (await >>= return)
-
-testWith argument pipe = runEffect $ (forever (yield argument)) >-> pipe >-> (await >>= return)
-  
-{- Crossover -}
-
-crossoverBlock :: Block Pop32 Pop32
-crossoverBlock = do
-  pc <- lookupConfig 0.06 "pc"
-  is <- lookupConfig (error "individual size was not provided") "is"
-  return $ crossoverP pc is
-
-crossoverIndividualsP prob indLength =
-  pairUpP >->
-  withP prob >->
-  whenChosen (crossoverIndividualP indLength) >->
-  unpairP
-
-crossoverIndividualP indLength pair = do
-  point <- r $ intIn (0, indLength-1)
-  return $ crossPair point pair
-
-
-crossoverP prob indLength = 
-  for cat (yield . foldInHalf) >->
-  probably prob >->
-  crossoverP' indLength >->
-  reconstitute >->
-  for cat (yield . unfoldInHalf)
-
-crossoverP' indLength = forever $ do
-  chunk <- await
-  case chunk of
-    Location pair -> do
-      crossPosition <- lift $ r $ intIn (0, indLength-1)
-      yield . Location . crossPair crossPosition $ pair
-    a -> yield a
-
-crossoverMultipointP prob indLength points = 
-  for cat (yield . foldInHalf) >->
-  probably prob >->
-  crossoverMultiP' indLength points >->
-  reconstitute >->
-  for cat (yield . unfoldInHalf)
-
-crossoverMultiP' indLength points = do
-  chunk <- await
-  case chunk of
-    Location pair -> do
-      crossPositions <- lift $ r $ replicateM points $ intIn (0, indLength-1)
-      yield . Location . multicrossPair crossPositions $ pair
-    a -> yield a
-
-testCrossover =
-  let testPopulation = S.fromList $ fmap S.fromList [sampleInd, reverse sampleInd]
-      sampleInd = [0..9]
-  in
-  testWith testPopulation (crossoverP 1 10)
-
-{- Selection -}
-
-tournamentBlock :: Block (S.Seq (a, Double)) (S.Seq a)
-tournamentBlock = do
-  pr <- lookupConfig (error "population size not provided") "ps"
-  tournSize <- lookupConfig (error "Tournament size not provided") "is"
-  return $ tournamentSelectionP pr tournSize
-
-data Tournament a = Tournament a a
-
-tournamentSelectionP :: Int -> Int -> Pipe (S.Seq (a, Double)) (S.Seq a) R r
-tournamentSelectionP populationSize tournSize = 
-  generateTournamentsP populationSize tournSize >-> competeP >-> collect populationSize
-
-stochasticTournamentSelectionP :: Double -> Int -> Int -> Pipe (S.Seq (a, Double)) (S.Seq a) R r
-stochasticTournamentSelectionP gate populationSize tournSize = 
-  generateTournamentsP populationSize tournSize >->
-  competeStochasticP gate >->
-  collect populationSize
-
-generateTournamentsP :: Int -> Int -> Pipe (S.Seq a) (Tournament a) R r
-generateTournamentsP populationSize tournSize = forever $ do
-  population <- await
-  tourns <- lift $ replicateM populationSize (generateTournamentP populationSize population)
-  each tourns
-
-generateTournamentP populationLength population = do
-  i <- r $ intIn (0, populationLength-1)
-  i' <- r $ intIn (0, populationLength-1)
-  return $ Tournament (S.index population i) (S.index population i')
-
-competeP :: Monad m => Pipe (Tournament (a, Double)) a m r
-competeP = forever $ do
-  Tournament a a' <- await
-  yield $ fst $ maxBy snd a a'
-
-competeStochasticP :: Double -> Pipe (Tournament (a, Double)) a R r
-competeStochasticP gate = forever $ do
-  Tournament a a' <- await
-  let (high, low) = ensure (a, a')
-  choice <- lift $ r $ double
-  yield $ fst $ if choice < gate then high else low
-
-testTournament = let population = S.fromList [(S.fromList [0], 5), (S.fromList [1], 10)]
-  in testWith population (tournamentSelectionP (S.length population) 2)
-
-{- Rotation -}
-
-rotationBlock :: Block Pop32 Pop32
-rotationBlock = do
-  pr <- lookupConfig 0.06 "pr"
-  is <- lookupConfig (error "individual size was not provided") "is"
-  return $ rotationP pr is
-
-rotationP prob indLength =
-  withP prob >->
-  whenChosen (rotateOp indLength)
-
-rotateOp indLength individual = do
-  rotationPoint <- r $ intIn (0, indLength-1)
-  return $ rotateIndividual rotationPoint individual
+-- lookups for commonly needed values
+lookForPM   = lookupConfig (0.001 :: Double) "pm"
+lookForPR   = lookupConfig (0.6   :: Double) "pr"
+lookForPC   = lookupConfig (0.6   :: Double) "pc1"
+lookForPC2  = lookupConfig (0.6   :: Double) "pc"
+lookForPT   = lookupConfig (0.75  :: Double) "pt"
+lookForGens = lookupConfig (1000  :: Int)    "gens"
+lookForPS   = lookupConfig (50    :: Int)    "ps"
+lookForIS   = lookupConfig (200   :: Int)    "is"
 
 {- Elitism -}
 --K-Elitism specialized for the k = 1 case
 fittestIndividual = F.maximumBy compareFitness
 
-keepFittestP :: (Eq a) =>
-  Pipe (S.Seq (S.Seq a, Double)) (S.Seq (S.Seq a, Double)) R r
+keepFittestP :: (Eq (Evaled (Ind a) b)) =>
+  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
 keepFittestP = do
   population <- await
   keepFittestP' $ fittestIndividual population
 
-keepFittestP' :: (Eq a) =>
-  (S.Seq a, Double) ->
-  Pipe (S.Seq (S.Seq a, Double)) (S.Seq (S.Seq a, Double)) R r
+keepFittestP' :: (Eq (Evaled (Ind a) b)) =>
+  (Evaled (Ind a) b) ->
+  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
 keepFittestP' fittest = do
   population <- await
   let newFittest = fittestIndividual population
@@ -291,16 +89,16 @@ keepFittestP' fittest = do
       yield $ fittest S.<| (S.drop 1 population)
   keepFittestP' newFittest
 
-compareFitness :: (Ord b) => (a, b) -> (a, b) -> Ordering
-compareFitness = compare `on` snd
+compareFitness :: (Evaled a b) -> (Evaled a b) -> Ordering
+compareFitness = compare `on` fitness
 
 sortByFitness = S.sortBy compareFitness
 
 kFittest k pop = S.take k $ sortByFitness pop
 
-elitismP :: (Eq a) =>
+elitismP :: (Eq a, Eq b) =>
   Int ->
-  Pipe (S.Seq (S.Seq a, Double)) (S.Seq (S.Seq a, Double)) R r
+  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
 elitismP 1 = keepFittestP
 elitismP k = do
   population <- await
@@ -313,82 +111,112 @@ ensureElem population individual =
     then population
     else individual S.<| (S.take ((S.length population) - 1) population)
 
-keepK :: (Eq a) =>
+keepK :: (Eq a, Eq b) =>
   Int ->
-  (S.Seq (S.Seq a, Double)) ->
-  Pipe (S.Seq (S.Seq a, Double)) (S.Seq (S.Seq a, Double)) R r
+  (Pop (Evaled (Ind a) b)) ->
+  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
 keepK k best = do
   population <- await
   let newBest = kFittest k population
   yield $ F.foldl ensureElem population best
   keepK k newBest
 
-{- Fitness -}
+{- Logging -}
 
-fitnessBlock :: (a -> Double) -> Block (S.Seq a) (S.Seq (a, Double))
-fitnessBlock fitnessFunction = do
-  ps <- lookupConfig (error "population size not provided") "ps"
-  return $ for cat each >-> (for cat $ \ ind -> yield (ind, fitnessFunction ind)) >-> collect ps
+loggingBlock :: Block a a -> Block a a
+loggingBlock block = do
+  loggingFlag <- lookupConfig False "logging"
+  if loggingFlag
+    then block
+    else return cat
 
---TODO should get a directory to start logging into.
-logFitness :: Pipe (S.Seq (Ind32, Double)) (S.Seq (Ind32, Double)) R ()
-logFitness = do
-  hd <- liftIO $ openFile "fitness.log" WriteMode
-  liftIO $ hPutStr hd "average fitness, best fitness\n"
-  asyncTee $ logFitness' hd
+{- Diversity -}
+logAvgLocus :: Block Pop32 Pop32
+logAvgLocus = loggingBlock $ do
+  bitsUsed <- lookupConfig 1 "bitsUsed"
+  is <- lookupConfig (error "individual size not provided") "is"
+  return $ hoist lift $ logTo "locus.log" $ logAvgLocus' bitsUsed (is :: Int)
 
-logFitness' hd = do
-  pop <- await
-  let best = snd $ fittestIndividual pop
-  let fits = fmap snd pop
-  let avg = F.sum fits / (fromIntegral $ S.length fits)
-  liftIO $ hPutStr hd $ (show avg) ++ ", " ++ (show best) ++ "\n"
-  logFitness' hd
-  
+logAvgLocus' :: Int -> Int -> Pipe Pop32 String (SafeT IO) r
+logAvgLocus' bitsUsed is = do
+  yield "locuses"
+  loop where
+    loop = do
+      pop <- await
+      let popLists = F.toList $ fmap F.toList pop
+      let expandedBits = (map . map) (expandBits bitsUsed) popLists
+      let pop' = map concat expandedBits
+      let sums = map sum $ transpose pop'
+      let avgs = map ((/fromIntegral is) . fromIntegral) sums
+      yield $ (++ "\n") $ intercalate "," $ map show avgs
+      loop
+
+logWordDiversity :: Block Pop32 Pop32
+logWordDiversity = loggingBlock $ do
+  bitsUsed <- lookupConfig 1 "bitsUsed"
+  return $ hoist lift $ logTo "diversity.log" $ logWordDiversity' bitsUsed
+
+logWordDiversity' :: Int -> Pipe Pop32 String (SafeT IO) r
+logWordDiversity' bitsUsed = do
+  yield "diversity"
+  loop where
+    loop = do
+      pop <- await
+      let diverse = wordDiversity bitsUsed pop
+      yield $ show diverse ++ "\n"
+      loop
+
+logTo :: (MonadSafe m, MonadIO m) => FilePath -> Pipe a String m () -> Pipe a a m ()
+logTo fileName pipe = do
+  --hd <- liftIO $ openFile fileName WriteMode
+  P.tee $ pipe >-> P.map fromString >-> PS.writeFile fileName
+
 {- Flow Control -}
-gensBlock :: Block a a 
-gensBlock = do 
+gensBlock :: Block a a
+gensBlock = do
   gens <- lookupConfig (error "generations not provided") "gens"
   return (go gens) where
-    go :: Int -> Pipe a a R ()
+    go :: Int -> Pipe a a (RVarT m) ()
     go 0 = return ()
     go n = do
       a <- await
       yield a
       go (n-1)
 
+asyncLog :: (MonadIO m) => FilePath -> Pipe a String IO () -> Pipe a a m ()
+asyncLog fileName pipe = do
+  (output, input) <- liftIO $ spawn Unbounded
+  let outPipe = toOutput output
+  liftIO $ async $ return $ withFile fileName WriteMode $ \hd -> runEffect $ (fromInput input) >-> pipe >-> P.map fromString >-> PB.toHandle hd
+  P.tee $ outPipe
+
+--asyncSafeTee :: (MonadIO m) => Consumer a (SafeT IO) () -> Pipe a a m ()
+--asyncSafeTee consumer = do
+--  (output, input) <- liftIO $ spawn Unbounded
+--  let outPipe = toOutput output
+--  liftIO $ runSafeT $ bracket (async $ return $ runEffect $ (fromInput input) >-> consumer) wait return
+--  P.tee $ outPipe
+
+cycleWith :: a -> Pipe a a (RVarT (SafeT IO)) () -> IO a
 cycleWith a pipe = do
   (output, input) <- liftIO $ spawn (Bounded 1)
   (finalOutput, finalInput) <- liftIO $ spawn (Newest 1)
-  thread <- async $ rIO $ runEffect $ (fromInput input) >-> pipe >-> toOutput (output <> finalOutput)
+  thread <- async $ runSafeT $ rIO $ runEffect $ (fromInput input) >-> pipe >-> toOutput (output <> finalOutput)
   atomically $ send output a
   wait thread
   (Just result) <- liftIO $ atomically $ recv finalInput
   return result
 
-asyncTee consumer = do
-  (output, input) <- liftIO $ spawn Unbounded
-  liftIO $ async $ rIO $ runEffect $ (fromInput input) >-> consumer 
-  P.tee $ toOutput output
-
-
-
 {- Utils -}
-data Chunk f a = Piece (f a)
-               | Location a
-               | Flush deriving (Show, Eq)
-
-
-data Choose a = Chosen a | NotChosen a
 
 withP prob = forever $ do
   a <- await
-  p <- lift $ r $ double
+  p <- lift $ stdUniformT
   yield $ if p < prob
     then Chosen a
     else NotChosen a
 
-whenChosen f = forever $ do 
+whenChosen f = forever $ do
   value <- await
   case value of
     Chosen a -> do
@@ -397,18 +225,18 @@ whenChosen f = forever $ do
     NotChosen a -> yield a
 
 probably prob = do
-  loc <- lift $ r $ geometric0 prob
+  loc <- lift $ geo0 prob
   piece <- await
   probably' prob loc piece
-  
+
 probably' prob loc ind = do
-  let len = S.length ind  
+  let len = S.length ind
   if len > loc
     then do
       let (top, bottom) = S.splitAt loc ind
       yield . Piece $ top
       yield . Location $ S.index bottom 0
-      loc' <- lift $ r $ geometric0 prob
+      loc' <- lift $ geo0 prob
       probably' prob loc' $ S.drop 1 bottom
     else do
       yield $ Piece ind
@@ -416,6 +244,7 @@ probably' prob loc ind = do
       ind' <- await
       probably' prob (loc - len) ind'
 
+reconstitute :: (Monad m) => Pipe (Chunk S.Seq a) (S.Seq a) m r
 reconstitute = reconstitute' S.empty
 
 reconstitute' piece = do
@@ -430,21 +259,27 @@ reconstitute' piece = do
     Flush -> do
       yield piece
       reconstitute' S.empty
- 
+
 pairUpP :: Monad m => Pipe a (a, a) m r
 pairUpP = forever $ do
   a <- await
   a' <- await
   yield (a, a')
- 
+
 unpairP :: Monad m => Pipe (a, a) a m r
 unpairP = forever $ do
   (a, a') <- await
   yield a
   yield a'
 
+onPairsP pipe = pairUpP >-> pipe >-> unpairP
+
 collect n = forever $ do
   collected <- S.fromList <$> (T.sequence . replicate n $ await)
   yield collected
 
+onElementsP :: (Monad m) => Pipe a a m () -> Pipe (S.Seq a) (S.Seq a) m ()
+onElementsP pipe = forever $ do
+  as <- await
+  each as >-> pipe >-> collect (S.length as)
 

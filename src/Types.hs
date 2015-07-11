@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 module Types where
@@ -15,10 +16,13 @@ import Data.Configurator.Types
 import Data.Word
 import Data.Random
 import Data.Monoid
---import Data.Conduit
 import Data.Function
+import Data.Random
+import Data.Random.Source
+import Pipes.Safe
 
-import Math.Probable.Random
+--import Math.Probable.Random
+import System.Random.MWC
 
 import Pipes
 
@@ -28,37 +32,39 @@ import Control.DeepSeq.Generics
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
+import qualified Control.Exception as E
+import Control.Monad.Operational
 
 import qualified GHC.Generics as G
 
 import Common
 
+{-
+consider having several built-in fitness functions for each algorithm like
+data GAProblems = BinaryClassifier | Ones | RoyalRoad
+and a way of specifying specific algorithms
+data Algorithms = RGEP | GA | UGA | PSO
+
+requiring a "dataSet" file in the config,
+and then having a version that is calleable from the command line to perform these.
+-}
 
 {- Probability -}
 type Prob = Double
 
-newtype R a = R { runR :: (RandT IO a) }
 
-instance Monad R where
-  return = R . return
-  (R ma) >>= f = R $ do
-    a <- ma
-    runR (f a)
-
-instance MonadIO R where
-  liftIO action = R . RandT . const $ action
-
-instance Functor R where
-  fmap f (R ma) = R $ fmap f ma
-
-instance Applicative R where
-  pure = R . return
-  rf <*> ra = do
-    f <- rf
-    a <- ra
-    return $ f a
+{- Heal Monad -}
+--newtype Heal a = Heal { runHeal :: Rand a }
 
 {- RGEP Types -}
+
+data StackI a b where
+  Pop :: StackI a a
+  Push :: a -> StackI a ()
+  Try :: StackAST a () -> StackI a ()
+
+type StackAST a b = Program (StackI a) b
+
 type Sym = String
 
 data Arity = Arity { inputs :: Int
@@ -70,12 +76,13 @@ instance Monoid Arity where
     Arity (ins   + max 0 (ins' - outs))
           (outs' + max 0 (outs - ins'))
   mempty = Arity 0 0
- 
+
 type StackProg a = [a] -> [a]
 
+--TODO could have a combining applicative/monoid/something instance
 data Op a = Op { name :: Sym
                , arity :: Arity
-               , program :: StackProg a
+               , program :: StackAST a ()
                }
 
 data ExprTree a = ExprTree
@@ -87,6 +94,8 @@ instance Show (Op a) where
   show = name
 
 type Decoder a = Word32 -> Op a
+
+type Expresser a = (S.Seq (Op a)) -> a
 
 data RGEPPhenotype a = RGEPPhenotype
                      { rgepTree :: ExprTree a
@@ -126,7 +135,7 @@ type PopVBits = V.Vector IndBits
 
 newtype Genetic a = Genetic { unGenes :: a }
 
-data Expressed a b = Expressed 
+data Expressed a b = Expressed
                    { genetic  :: a
                    , expression :: b
                    } deriving (Eq, Show, G.Generic)
@@ -139,10 +148,19 @@ data Evaled a b = Evaled
 instance (NFData a, NFData b) => NFData (Expressed a b) where rnf = genericRnf
 instance (NFData a, NFData b) => NFData (Evaled a b) where rnf = genericRnf
 
+{- Pipe Helpers -}
+data Chunk f a = Piece (f a)
+               | Location a
+               | Flush deriving (Show, Eq)
+
+
+data Choose a = Chosen a | NotChosen a
+
+--TODO consider homogenous pairs with foldable to generalize
+data Tournament a = Tournament a a
+
 {- Application Blocks -}
---type Block a b = Pipe a b (ReaderT Config R) ()
---type Block a b = ReaderT Config IO (Pipe a b R ())
-type Block a b = ReaderT Config IO (Pipe a b R ())
+type Block a b = ReaderT Config IO (Pipe a b (RVarT (SafeT IO)) ())
 
 {- Algorithm Types -}
 data RGEP d p = RGEP
@@ -155,7 +173,7 @@ data ANN = ANN
 
 
 {- Additional Genericness -}
-type family HasRepr a 
+type family HasRepr a
 type instance HasRepr (GA r d l p) = r
 type instance HasRepr (RGEP d p) = Pop32
 

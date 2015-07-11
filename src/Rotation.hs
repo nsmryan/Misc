@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Rotation where
 
 import qualified Data.Sequence as S
@@ -5,9 +6,12 @@ import Data.Random
 --import Data.Conduit
 
 import Control.Monad.IO.Class
-
 import Control.Monad
 
+import Pipes
+import Pipes.Safe
+
+import PipeOperators
 import Types
 import Utils
 import UtilsRandom
@@ -28,9 +32,10 @@ rotationPure indices rotationPoints pop =
     rotations = map rotateIndividual rotationPoints
 
 rotation ::
-  Prob -> 
+  (Monad m) =>
+  Prob ->
   (Pop (Ind a)) ->
-  R (Pop (Ind a))
+  RVarT m (Pop (Ind a))
 rotation pr pop = let
   popLen = S.length pop
   indLen = S.length $ pop `S.index` 0
@@ -38,4 +43,18 @@ rotation pr pop = let
       indices <- generateIndices popLen pr
       rotationPoints <- replicateM (length indices) (fromRange indLen)
       return $ rotationPure indices rotationPoints pop
+
+rotationBlock :: Block Pop32 Pop32
+rotationBlock = do
+  pr <- lookupConfig (0.06 :: Double) "pr"
+  is <- lookupConfig (error "individual size was not provided") "is"
+  return $ rotationP pr is
+
+rotationP prob indLength =
+  withP prob >->
+  whenChosen (rotateOp indLength)
+
+rotateOp indLength individual = do
+  rotationPoint <- uniformT 0 (indLength-1)
+  return $ rotateIndividual rotationPoint individual
 

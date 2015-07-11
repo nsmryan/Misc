@@ -1,4 +1,6 @@
 {-# LANGUAGE  FlexibleContexts #-}
+{-# LANGUAGE  GADTs #-}
+{-# LANGUAGE  DeriveFunctor #-}
 module RGEP where
 
 import qualified Data.Sequence as S
@@ -7,12 +9,18 @@ import Data.List.Split
 import qualified Data.Traversable as T
 import qualified Data.Foldable as F
 import qualified Data.Vector as V
+import Data.Random
 --import Data.Conduit
+
+import qualified Pipes.Prelude as P
 
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Lazy
+import Control.Monad.Free
+import Control.Monad.Operational
+
 
 import Common
 import Types
@@ -21,20 +29,46 @@ import PointMutation
 import Crossover
 import Rotation
 import Selection
---import PBIL --TODO add back in
---import RMHC -- TODO add back in
 import Evaluation
---import Conduit
+import Utils
 
+
+
+pop :: StackAST a a
+pop = singleton Pop
+
+push :: a -> StackAST a ()
+push a = singleton $ Push a
+
+try :: StackAST a () -> StackAST a ()
+try = singleton . Try
+
+evalStack :: StackAST a b -> (Maybe b, [a])
+evalStack prog = evalStack' prog []
+
+evalStack' :: StackAST a b -> [a] -> (Maybe b, [a])
+evalStack' prog as = eval (view prog) as
+  where
+    eval :: ProgramView (StackI a) b -> [a] -> (Maybe b, [a])
+    eval (Return b)      as     = (Just b, as)
+    eval (Pop :>>= k)    []     = (Nothing, [])
+    eval (Pop :>>= k)    (a:as) = evalStack' (k a) as
+    eval (Push a :>>= k) as     = evalStack' (k ()) (a:as)
+    eval (Try p :>>= k)  as     = case evalStack' p as of
+                                    (Nothing, _) -> evalStack' (k ()) as
+                                    (Just b, as') -> evalStack' (k ()) as'
 
 {- Operators -}
-mkOp1 name f = Op name (Arity 1 1) (onHead f) where
-  onHead f (a:as) = f a : as
+mkOp1 name f = Op name (Arity 1 1) onHead where
+  onHead = pop >>= push . f
 
-mkOp2 name f = Op name (Arity 2 1) (firstTwo f) where
-  firstTwo f (a:a':as) = a `f` a' : as
+mkOp2 name f = Op name (Arity 2 1) onTwo where
+  onTwo = do
+    a <- pop
+    b <- pop
+    push (f a b)
 
-mkTerm name v = Op name (Arity 0 1) (v:)
+mkTerm name v = Op name (Arity 0 1) (push v)
 
 --Generic operators
 idOp = mkOp1 "id" id
@@ -52,12 +86,30 @@ twoTerm = mkTerm "2"  (2.0)
 
 arithOps = [plusOp, minusOp, timesOp, divOp, incOp, zeroTerm, oneTerm, twoTerm]
 
+noop = do
+  a <- pop
+  push a
+
+dupProg = do
+  a <- pop
+  push a
+  push a
 
 -- Stack operations
-dup    = Op "dup"  (Arity 1 2) (uncurry (:) . (head &&& id))
-dropOp = Op "drop" (Arity 1 0) tail
-swap   = Op "swap" (Arity 2 2) $ \ (a:a':as) -> a':a:as
-tuck   = Op "tuck" (Arity 2 3) $ \ (a:a':as) -> (a:a':a:as)
+dup    = Op "dup"  (Arity 1 2) dupProg
+dropOp = Op "drop" (Arity 1 0) pop
+swap   = Op "swap" (Arity 2 2) $ do
+  a <- pop
+  b <- pop
+  push a
+  push b
+tuck   = Op "tuck" (Arity 2 3) $ do
+  a <- pop
+  b <- pop
+  push a
+  push b
+  push a
+
 
 stackOps = [dup, dropOp, swap, tuck]
 
@@ -103,6 +155,7 @@ polyTwo  = polyConst "2"  2.0
 polyFive = polyConst "5"  5.0
 polyTen  = polyConst "10" 10.0
 
+polyOps :: [Op (Double -> Double)]
 polyOps = [polyPlus, polyMinus, polyTimes, polyX, polyZero, polyOne, polyTwo, polyFive, polyTen]
 
 errorOn :: [(Double, Double)] -> (Double -> Double) -> Double
@@ -117,59 +170,34 @@ logOp = mkOp1 "log" (log)
 -- Function creation
 -- Decision trees
 -- Neural Networks
+--Tree creating ops
+--mkTree op = mkOp1 treeRoot
+--mkChildren = treeChildren :: [ExprTree a]
 
 {- Gene Expression -}
-filterUnderflows ops = map fst . filter (snd) . zip ops . snd . mapAccumL composeEffects mempty $ ops
-composeEffects arr op = if outputs arr < inputs (arity op) then (arr, False) else (arr <> arity op, True)
-
-progArity = Arity 0 1 --from [] to [a]
-
-dec a = a-1
-
-onlyRunnable ops = take (lastFullProg ops) ops where
-  incrProgs = scanl1 (<>) . map arity
-  fullProg = findIndices (== progArity) 
-  getLength as = 1 + last as
-  lastFullProg = getLength . fullProg . incrProgs
-
-cleanProg = onlyRunnable . filterUnderflows
-
-stackEffect :: [Op a] -> Arity
-stackEffect = mconcat . map arity
-
-runOpsUnsafe ops = foldl' (.) id (map program . reverse $ ops) []
-runOps = runOpsUnsafe . cleanProg
-
-runProgram prog = do
-  let filtered = filterUnderflows prog 
-  guard . not . null $ filtered
-  let runnable = onlyRunnable filtered
-  guard . not . null $ runnable
-  return $ runOpsUnsafe runnable
-
-runProgramWithDefault :: a -> [Op a] -> a
-runProgramWithDefault def prog = maybe def head (runProgram prog)
-
---rgepRun :: Decoder a -> a -> Ind32 -> RGEPExpressed a
-rgepRun :: Decoder a -> a -> Ind32 -> Expressed Ind32 (RGEPPhenotype a)
-rgepRun decoder a as =
-  let opList = F.toList . smap decoder $ as
-      treeless = runProgramWithDefault a opList 
+rgepRun :: Decoder a -> a -> Ind32 -> RGEPExpressed a
+rgepRun decoder defaul as =
+  let opList = map (program . decoder) $ F.toList as
+      result = evalStack $ foldr (>>) noop opList
+      treeless = case result of
+                   (_, [])     -> defaul
+                   (Just _, a:as)  -> a
+      --TODO create ops from existing ones which build trees.
       tree = ExprTree undefined undefined
   in
     Expressed as $ RGEPPhenotype tree treeless
 
 {- Evaluation -}
 
-rgepEvalInd :: (a -> R Double) -> RGEPExpressed a -> R Double
+rgepEvalInd :: (a -> RVarT m Double) -> RGEPExpressed a -> RVarT m Double
 rgepEvalInd eval individual = eval . rgepTreeless . expression $ individual
 
 rgepEvaluation ::
-  (a -> R Double) ->
+  (a -> RVarT m Double) ->
   Decoder a ->
   a ->
   Pop32 ->
-  R (Pop (RGEPEval a))
+  RVarT m (Pop (RGEPEval a))
 rgepEvaluation eval decoder def pop = do
   let decoded = rgepRun decoder def <$> pop
   fitnesses <- T.sequence $ smap (rgepEvalInd eval) decoded
@@ -197,67 +225,34 @@ decodeSymbols terms nonterms = let
                 symV = if testBit w 0 then nontermsV else termsV
                 in symV V.! (index `mod` V.length symV)
 
-{- RGEP PBIL -}
-{-
-b2i True = 1
-b2i False = 0
-
-pack :: [Bool] -> Word32
-pack bs = foldl (\ w b -> (w `shiftL` 1) .|. b2i b) 0 bs
-
-collect ::  Int -> S.Seq Bool -> [Word32]
-collect n bs = pack <$> (splitEvery n $ F.toList bs)
-
-rgepPBIL ops ps is gens learn neglearn mutRate mutShift eval =
-  pbil ps bs gens learn neglearn mutRate mutShift (collect bits) eval where
-    bs = bits * is
-    bits = bitsUsed ops
--}
-
-
-{- RGEP RMHC -}
---TODO clean this up so it is a separate algorithm
---combining RMHC and RGEP
-smap :: (a -> b) -> S.Seq a -> S.Seq b
-smap = fmap
-
-{-
-testRMHC = do
-  let ops = [zeroTerm, oneTerm, twoTerm, plusOp, timesOp, dup]
-      decoder = decode ops
-      bits = bitsUsed ops
-  (ind, fit) <- runRandIO $ rmhc 40 bits 100000 0.1 (return . rgepRun decoder 0)
-  printf "ind = %s\n" (show ind)
-  printf "program = %s\n" $ show $ cleanProg . F.toList . smap decoder $ ind
-  printf "fitness = %f\n" fit
--}
 
 {- Elitism -}
 elitism ::
   Int ->
-  (Pop (Evaled a b) -> R (Pop a)) -> 
+  (Pop (Evaled a b) -> RVarT m (Pop a)) ->
   Pop (Evaled a b) ->
-  R (Pop a)
+  RVarT m (Pop a)
 elitism k select pop = do
   let (elite, common) = S.splitAt k $ S.sortBy compareFitnesses pop
   selected <- select common
   return (genetics elite S.>< selected)
 
 
-{- RGEP -}
+{- Basic RGEP implementation -}
 rgep ::
-  Int -> --population size
-  Int -> --individual size
+  (Monad m) =>
+  Int    -> --population size
+  Int    -> --individual size
   [Op a] -> --operators
-  Prob -> -- pm
-  Prob -> -- pr
-  Prob -> -- pc1
-  Prob -> -- pc2
-  Prob -> -- tournament selection prob
-  Int -> -- generations
-  a -> -- default value
-  (a -> R Double) -> --fitness function
-  R (Pop (RGEPEval a))
+  Prob   -> -- pm
+  Prob   -> -- pr
+  Prob   -> -- pc1
+  Prob   -> -- pc2
+  Prob   -> -- tournament selection prob
+  Int    -> -- generations
+  a      -> -- default value
+  (a     -> RVarT m Double)              -> --fitness function
+  RVarT m (Pop (RGEPEval a))
 rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
   let bits = bitsUsed ops
       decoder = decode ops
@@ -267,8 +262,8 @@ rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
       loop gens pop = do
         popEvaled <- evaluator pop
         popSelected <- elitism 1 (stochasticTournament pt) popEvaled
-        popCrossed1 <- crossover pc1 popSelected
-        popCrossed2 <- multipointCrossover pc2 2 popCrossed1
+        popCrossed1 <- singlePointCrossoverM pc1 popSelected
+        popCrossed2 <- multipointCrossoverM pc2 2 popCrossed1
         popMutated <- pointMutation pm is 1 popCrossed2
         popRotated <- rotation pr popMutated
         loop (pred gens) popRotated
@@ -276,27 +271,8 @@ rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
           finalPopulation <- loop gens pop
           evaluator finalPopulation
 
-{- RGEP Conduit -}
---rgepConduit ::
---  Int -> --individual size
---  Int -> --population size
---  [Op a] -> --operators
---  Prob -> -- pm
---  Prob -> -- pr
---  Prob -> -- pc1
---  Prob -> -- pc2
---  Prob -> -- tournament selection prob
---  a -> -- default value
---  (a -> IO Double) ->
---  Conduit Pop32 IO Pop32
---rgepConduit is ps ops pm pr pc1 pc2 pt def eval = do
---  let bits = bitsUsed ops
---      decoder = decode ops
---      evaluator a = eval $ rgepRun decoder def a
---        in evaluationConduit evaluator =$=
---           elitismConduit 1 (rIO . stochasticTournament pt) =$=
---           crossoverConduit pc1 =$=
---           multipointCrossoverConduit pc2 2 =$=
---           pointMutationConduit pm is 1 =$=
---           rotationConduit pr
---
+rgepExpressionBlock :: [Op a] -> a -> Block Pop32 (Pop (RGEPExpressed a))
+rgepExpressionBlock ops defaul = let decoder = decode ops in
+  return $ P.map (fmap $ rgepRun decoder defaul)
+
+

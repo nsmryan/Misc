@@ -2,7 +2,7 @@
 module Utils where
 
 --import Data.Random.Source
-import Data.Random.Source.PureMT
+--import Data.Random.Source.PureMT
 import Data.Random.Sample
 import Data.Random.Distribution.Exponential
 import Data.Random.Distribution.Uniform
@@ -18,13 +18,9 @@ import Types
 import SeqZip
 
 
---TODO think aboue using RWS Int [Int] (Seq a)
---reading size, taking from indices, and writting used up sequence
---perhaps a supply of functions to apply- constant or from list
+expandBits bitsUsed b = map (fromEnum . testBit b) [0..bitsUsed-1]
 
 failuresWith p u = floor (log u / log (1 - p))
-
-toBits bits i = map (fromEnum . testBit i) [0..bits-1]
 
 repeatM :: (Monad m) => m a -> m [a]
 repeatM = sequence . repeat
@@ -33,8 +29,11 @@ minBy f a b = if f a < f b then a else b
 maxBy :: (Ord b) => (a -> b) -> a -> a -> a
 maxBy f a b = if f a >= f b then a else b
 
-ones :: S.Seq Word32 -> Double
+ones :: Ind32 -> Double
 ones ind = fromIntegral $ F.sum ind
+
+sumOnes :: Ind32 -> Double
+sumOnes ind = ones ind
 
 timesM :: (Monad m) => Int -> a -> (a -> m a) -> m a
 timesM i a m = foldl (>=>) return (replicate i m) $ a
@@ -42,6 +41,10 @@ timesM i a m = foldl (>=>) return (replicate i m) $ a
 puts f = do
   s <- get
   put (f s)
+
+smap :: (a -> b) -> S.Seq a -> S.Seq b
+smap = fmap
+
 
 {- Diversity Measures -}
 --TODO consider incorporating the edit-distance package
@@ -53,17 +56,17 @@ puts f = do
 --splits out bits before calculating diversity
 wordDiversity :: (Bits n) => Int -> S.Seq (S.Seq n) -> Double
 wordDiversity bits iss =
-  centroidDiversity $ fmap (S.fromList . F.concat . fmap (toBits bits)) iss
+  centroidDiversity $ fmap (S.fromList . F.concat . fmap (expandBits bits)) iss
 
 centroidDiversity :: (Integral n) => S.Seq (S.Seq n) -> Double
 centroidDiversity dss = diversity' (S.length dss) $ F.toList $ fmap F.toList $ (fmap (fmap fromIntegral)) dss
 
 diversity' :: Int -> [[Double]] -> Double
 diversity' n dss =
-  let centroids = map ((/len) . sum) transposed  
+  let centroids = map ((/len) . sum) transposed
       transposed = transpose dss
       len = fromIntegral n
-  in 
+  in
     sum $ map (\(ds, c) -> sum $ map (\a -> (a-c)^2) ds) $ zip transposed centroids
 
 {- Efficient application of genetic operators -}
@@ -75,7 +78,7 @@ skipping n = do
   if i == 0
     then do
       return 0
-    else do 
+    else do
       let (skips, m) = divMod i n
       put $ (m, b) : is
       return $! skips

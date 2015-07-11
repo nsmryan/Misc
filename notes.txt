@@ -1,14 +1,13 @@
 Next:
-  chart for fitness
-  combine with bitmap diagram
-  add more blocks
-  clean up initial population and running generation
+  chart for fitness - read csv into a chart. consider adding diversity
+  combine with bitmap diagram for a simple summary. would like a little text too, perhaps
+  think about post-processing structures/functionality
+  think about runs and comparing algorithm results
+  think about adding EKG back in to watch progress
 
   Generalize chart generation:
     read log files out. match chart options to log file names, read data, produce
       result picture, and merge pictures into result file
-
-Run multiple algorithms with configs and compare with charts
 
 generalize operators
 
@@ -28,7 +27,7 @@ type families for different problem results
 
 possible uses for generics? sum-of-products
 
-RGEP has both breaddth and depth:
+RGEP has both breadth and depth:
   function representation has a lot of applications
     classification
     board evaluator
