@@ -5,11 +5,9 @@ import qualified Data.Sequence as S
 import Data.Random
 --import Data.Conduit
 
-import Control.Monad.IO.Class
 import Control.Monad
 
 import Pipes
-import Pipes.Safe
 
 import PipeOperators
 import Types
@@ -46,13 +44,16 @@ rotation pr pop = let
 
 rotationBlock :: Block Pop32 Pop32
 rotationBlock = do
-  pr <- lookupConfig (0.06 :: Double) "pr"
+  pr <- lookupConfig (0.02 :: Double) "pr"
   is <- lookupConfig (error "individual size was not provided") "is"
-  return $ rotationP pr is
+  ps <- lookupConfig (error "population size was not provided") "ps"
+  return $ rotationP pr is ps
 
-rotationP prob indLength =
+rotationP prob indLength popSize =
+  for cat each >->
   withP prob >->
-  whenChosen (rotateOp indLength)
+  whenChosen (rotateOp indLength) >->
+  collect popSize
 
 rotateOp indLength individual = do
   rotationPoint <- uniformT 0 (indLength-1)

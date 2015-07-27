@@ -5,26 +5,24 @@
 {-# LANGUAGE  TemplateHaskell #-}
 module UtilsRandom where
 
---import Data.Random.Source
-import Data.IORef
 import qualified Data.Sequence as S
 import Data.Random
 import Data.Random.Source
+import Data.Tree
+import Data.Maybe
 
---import Math.Probable
-
-import Pipes.Concurrent
 import Pipes.Safe
 
 import System.Random.MWC
 
 import Control.Monad.Primitive
-import Control.Applicative
 import Control.Monad.State
 import Control.Concurrent.Async
-import System.Random.MWC (create)
+import Control.Monad.Reader
+import Control.Applicative
+import Control.Lens.At
+import Control.Lens.Operators
 
-import Common
 import Types
 import Utils
 
@@ -35,7 +33,7 @@ asyncR  = liftIO . async . runSafeT . rIO
 
 rIO :: (RandomSource m (Gen RealWorld), MonadIO m) => RVarT m a -> m a
 rIO m = do
-  mwc <- liftIO $ create
+  mwc <- liftIO $ createSystemRandom
   sampleFrom mwc m
 
 $(randomSource [d|
@@ -53,6 +51,7 @@ fromRange n = uniformT 0 (pred n)
 --code taken from mwc library
 --TODO use log1p and put in main random-fu
 {-# INLINE geo0 #-}
+geo0 :: (Monad m) => Double -> RVarT m Int
 geo0 p
   | p == 1          = return 0
   | p >  0 && p < 1 = do q <- stdUniformT
@@ -114,4 +113,66 @@ applyRandomlyOverIndividuals f n dist prob as = do
 applyRandomly fs p n as = do
     indices <- generateIndices n p
     return $ applyFtoIx n fs indices as
+
+{- Apply Rose Tree of locations -}
+mapLayer ::
+  (Ixed t) =>
+  (Forest (Index t) -> IxValue t -> IxValue t) ->
+  t ->
+  Forest (Index t) ->
+  t
+mapLayer f as locations = foldl applyOnce as locations where
+  applyOnce as (Node index children) = as & ix index %~ (f children)
+
+seqLayer forest = undefined
+vectLayer forest = undefined
+listLayer forest = undefined
+bitsLayer forest = undefined
+
+{- Generate Rose Tree of locations -}
+type Indexer m a = ReaderT Double (StateT Int (RVarT m)) a
+
+generateTree :: Double -> Indexer IO (Forest Int) -> IO (Forest Int)
+generateTree prob generator = do
+  firstIndex <- rIO $ geo0 prob
+  rIO $ evalStateT (runReaderT generator prob) firstIndex
+
+generateIndex :: (Monad m) => Indexer m Int
+generateIndex = ask >>= (lift . lift . geo0)
+
+renewIndex :: (Monad m) => Indexer m ()
+renewIndex = generateIndex >>= put
+
+nextLocation :: (Monad m) => Int -> Int -> Indexer m (Maybe Int)
+nextLocation elemSize totalSize = do
+  index <- get
+  if index < totalSize
+     then do put (index `mod` elemSize)
+             return $ Just $ index `div` elemSize
+     else do put (index - totalSize)
+             return Nothing
+
+singleIndex :: (Monad m) => Int -> Indexer m (Forest Int)
+singleIndex 1 = renewIndex >> (return $ [Node 0 []])
+singleIndex n = error ("singleIndex received size of " ++ show n)
+
+leafLayer :: (Monad m) => Int -> Indexer m (Forest Int)
+leafLayer numElems =
+  layer singleIndex 1 numElems
+
+layer ::
+  (Monad m) =>
+  (Int -> Indexer m (Forest Int)) ->
+  Int ->
+  Int ->
+  Indexer m (Forest Int)
+layer _ _ 0 = return []
+layer nextLayer elemSize layerSize = do
+  location <- nextLocation elemSize (elemSize * layerSize)
+  case location of
+    Just index -> do children <- nextLayer elemSize
+                     let restOfLayer = layerSize - index - 1
+                     rest <- layer nextLayer elemSize restOfLayer
+                     return $ (Node index children) : rest
+    Nothing -> return []
 

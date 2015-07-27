@@ -8,8 +8,6 @@ import Selection
 import Crossover
 import PointMutation
 import Evaluation
-import Common
-
 
 
 oneBit = 1
@@ -32,7 +30,7 @@ geneticAlgorithm ps is gens pm pc expr eval = do
         popExpressed <- return $ expressPopWith expr pop
         popEvaled <- evaluationM eval popExpressed
         popSelected <- tournamentSelection 2 popEvaled
-        popCrossed <- singlePointCrossoverM pc popSelected
+        popCrossed <- singlePointCrossoverM is ps pc popSelected
         popMutated <- pointMutation pm is oneBit popCrossed
         loop (pred gens) popMutated
     in

@@ -32,7 +32,7 @@ import Common
 conduit =&&&= conduit' = do
   (a:b:[]) <- sequenceConduits [conduit, conduit']
   C.yield (a, b)
-  conduit =&&&= conduit' 
+  conduit =&&&= conduit'
 
 nGenerations gens initial conduit = do
   --logger <- liftIO $ getLogger logName
@@ -52,7 +52,7 @@ nGenerations gens initial conduit = do
                else do
                  liftIO . atomically . writeTBMChan chan $ initial
                  loop gens' a
-    in sourceTBMChan chan $$ loop gens initial 
+    in sourceTBMChan chan $$ loop gens initial
 
 {- Crossover Conduit -}
 multipointCrossoverConduit ::
@@ -61,14 +61,14 @@ multipointCrossoverConduit ::
   Conduit (Pop (Ind a)) IO (Pop (Ind a))
 multipointCrossoverConduit pc points = awaitForever (liftIO . rIO . multipointCrossover pc points)
 
-crossoverConduit :: 
+crossoverConduit ::
   Prob -> -- Probability of crossover
   Conduit (Pop (Ind a)) IO (Pop (Ind a))
 crossoverConduit pc = awaitForever (liftIO . rIO . crossover pc)
 
 
 {- Evaluation Conduit -}
-evaluationConduit :: 
+evaluationConduit ::
   (Expressed a b -> IO Double) -> -- Evaluation of an individual
   Conduit (Pop (Expressed a b)) IO (Pop (Evaled a b))
 evaluationConduit eval = awaitForever $ \ pop -> do
@@ -86,7 +86,7 @@ pointMutationConduit pm is bits = awaitForever (liftIO . rIO . pointMutation pm 
 
 {- Rotation Conduit -}
 rotationConduit ::
-  Prob -> -- Probability of rotation 
+  Prob -> -- Probability of rotation
   Conduit (Pop (Ind a)) IO (Pop (Ind a))
 rotationConduit prob = awaitForever (liftIO . rIO . rotation prob)
 
@@ -96,7 +96,7 @@ stochasticTournamentConduit ::
   Conduit (Pop (Evaled a b)) IO (Pop a)
 stochasticTournamentConduit prob = awaitForever (liftIO . rIO . stochasticTournament prob)
 
-tournamentSelectionConduit :: 
+tournamentSelectionConduit ::
   Int -> -- Tournament size
   Conduit (Pop (Evaled a b)) IO (Pop a)
 tournamentSelectionConduit size = awaitForever (liftIO . rIO . tournamentSelection size)
@@ -110,5 +110,5 @@ elitismConduit k select = awaitForever $ \ pop -> do
   let (elite, common) = S.splitAt k $ S.sortBy (compare `on` fitness) pop
   selected <- liftIO $ select common
   C.yield (genetics elite S.>< selected)
-    
+
 -}

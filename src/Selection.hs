@@ -4,13 +4,8 @@ module Selection where
 import qualified Data.Sequence as S
 import qualified Data.Vector as V
 import Data.Random
-import Data.Function
 import Data.List
-import qualified Data.Traversable as T
 import qualified Data.Foldable as F
---import Data.Conduit
-
-import Control.Monad.IO.Class
 
 import Control.Monad
 import Control.Applicative
@@ -21,7 +16,6 @@ import Pipes.Safe
 import Types
 import Utils
 import UtilsRandom
-import Common
 import Evaluation
 import PipeOperators
 

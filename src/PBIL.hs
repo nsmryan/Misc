@@ -10,9 +10,7 @@ import Control.Applicative
 
 import UtilsRandom
 import Utils
-import PointMutation
 import Types
-import Common
 
 {- Population Based Incremental Learning -}
 genInd ::

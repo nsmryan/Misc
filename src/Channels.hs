@@ -2,27 +2,17 @@
 {-# LANGUAGE GADTs #-}
 module Channels where
 
---import Math.Probable
-
 import Pipes.Concurrent
 import Pipes
-import Pipes.Safe
-import qualified Pipes.Prelude as PP
 
-import Control.Concurrent.Async
-import Control.Monad as CM
+import Control.Concurrent.Async as Async
 import Control.Monad.Loops as CL
-import Control.Monad.IO.Class
 import Control.Applicative
-import Control.Arrow
---import Control.Concurrent.STM.TMVar
 
-import Data.Monoid
 import Data.Maybe
 import Data.Random
 import Data.Random.Distribution.Uniform
 
-import UtilsRandom
 import Types
 
 
@@ -53,32 +43,40 @@ c *-> p = c `chain` (Link p)
 
 
 compileChain ::
-  Chain (RVarT (SafeT IO)) a b ->
-  RVarT (SafeT IO) (Output a, Input b, STM ())
-compileChain chain = do
+  (Monad m, MonadIO m) =>
+  (m () -> IO ()) ->
+  Chain m a b ->
+  IO (Output a, Input b, IO ())
+compileChain runner chain = do
   (output, input, cleanup) <- liftIO $ spawn' Unbounded
-  input' <- compileChain' chain input
-  return (output, input', cleanup)
+  (input', closeAsync) <- compileChain' runner chain input
+  return (output, input', atomically cleanup >> closeAsync)
 
 
 compileChain' ::
-  Chain (RVarT (SafeT (IO))) a b ->
+  (Monad m, MonadIO m) =>
+  (m () -> IO ()) ->
+  Chain m a b ->
   Input a ->
-  RVarT (SafeT IO) (Input b)
-compileChain' (Link pipe) input = do
+  IO (Input b, IO ())
+compileChain' runner (Link pipe) input = do
   (output, input') <- liftIO $ spawn Unbounded
-  asyncR $ runEffect $ fromInput input >-> pipe >-> toOutput output
-  return input'
+  asyncHdl <- async $ runner $ runEffect $
+    fromInput input >-> pipe >-> toOutput output
+  return (input', cancel asyncHdl)
 
-compileChain' (Chain chain chain') input =
-  compileChain' chain  input >>= compileChain' chain'
+compileChain' runner (Chain chain chain') input = do
+  (input', closeAsync)   <- compileChain' runner chain  input
+  (input'', closeAsync') <- compileChain' runner chain' input'
+  return (input'', closeAsync >> closeAsync')
+  --compileChain' chain  input >>= compileChain' chain'
 
-compileChain' (Cycle chain) input = do
+compileChain' runner (Cycle chain) input = do
   -- queue for the chain to pull from
   (leftOutput,  leftInput)  <- liftIO $ spawn Unbounded
   --queue for the chain to push to
   (rightOutput, rightInput) <- liftIO $ spawn Unbounded
-  chainInput <- compileChain' chain leftInput
+  (chainInput, closeAsync) <- compileChain' runner chain leftInput
   let
     --outer loop receives from the given input and starts the inner loop
     outerLoop = do
@@ -87,7 +85,7 @@ compileChain' (Cycle chain) input = do
         Just value -> do
           atomically $ send leftOutput value
           innerLoop
-        Nothing -> return Nothing
+        Nothing -> return ()
     --inner loop pulls from the chain and decides whether to keep feeding the
     --result back or to push it forward
     innerLoop = do
@@ -99,10 +97,10 @@ compileChain' (Cycle chain) input = do
         Just (Right value) -> do
           b <- atomically $ send rightOutput value
           return (b, outerLoop)
-        Nothing -> return (False, return Nothing)
-      if b then action else return Nothing
-  liftIO $ async outerLoop
-  return rightInput
+        Nothing -> return (False, return ())
+      if b then action else return ()
+  asyncHdl <- liftIO $ async $ outerLoop
+  return (rightInput, closeAsync >> cancel asyncHdl)
 
 pump :: (Output (), Input a) -> IO (Maybe a)
 pump (output, input) =

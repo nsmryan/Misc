@@ -2,22 +2,17 @@
 module Crossover where
 
 import qualified Data.Sequence as S
-import qualified Data.Vector as V
 import Data.List
 import Data.Monoid
-import qualified Data.Traversable as T
 import Data.Random
-import qualified Data.Text as T
 import Data.String
+import Data.Maybe
 
-import Control.Applicative
-import Control.Monad.IO.Class
 import Control.Monad
-import Control.Parallel
+import Control.Applicative
 
-import Pipes
 import qualified Pipes.Prelude as P
-import Pipes.Safe
+import Pipes
 
 import Types
 import Utils
@@ -42,41 +37,31 @@ singlePointCrossover indices crossPoints population = let
   crossedPairs = applyOnEach ($) (zip indices (map crossPair crossPoints)) pairs
   in unpair crossedPairs
 
+singlePointCrossoverM is ps p pop =
+  fromJust <$> P.last (yield pop >-> singlePointCrossoverP is ps p)
+
 --Singlepoint Crossover of a population
-singlePointCrossoverM ::
+singlePointCrossoverP ::
   (Monad m) =>
-  Prob -> Pop (Ind a) -> RVarT m (Pop (Ind a))
-singlePointCrossoverM p population = do
-  let totalLength = S.length population `div` 2
-      len = S.length $ population `S.index` 0
-  indices <- generateIndices totalLength p
-  crossPoints <- replicateM (length indices) $ fromRange len
-  return $ singlePointCrossover indices crossPoints population
+  Int -> Int -> Prob -> Pipe (Pop (Ind a)) (Pop (Ind a)) (RVarT m) r
+singlePointCrossoverP indLength popSize p =
+  for cat each >->
+  pairUpP >->
+  withP p >->
+  whenChosen (singlePointCrossoverOP indLength) >->
+  unpairP >->
+  collect popSize
+
+singlePointCrossoverOP indLength paired = do
+  crossPoint <- fromRange indLength
+  return $ crossPair crossPoint paired
 
 crossoverBlock :: Block Pop32 Pop32
 crossoverBlock = do
   pc <- lookForPC
-  return . P.mapM . singlePointCrossoverM $ pc
-  --return $ crossoverP pc ps is
-
---crossoverP :: Double -> Int -> Int -> Pipe Pop32 Pop32 (RVarT (SafeT IO)) r
---crossoverP prob ps is =
---  P.map foldInHalf >-> probably prob >-> crossoverP' is >-> reconstitute >-> collect ps >-> P.map unpair
---
---crossoverP' indLength = forever $ do
---  chunk <- await
---  case chunk of
---    Location pair -> do
---      crossPosition <- lift $ uniformT 0 (indLength-1)
---      yield . Location . crossPair crossPosition $ pair
---    a -> yield a
---
---crossoverIndividualsP prob indLength =
---  onPairsP (withP prob >-> whenChosen (crossoverIndividualP indLength))
---
---crossoverIndividualP indLength pair = do
---  point <- uniformT 0 (indLength-1)
---  return $ crossPair point pair
+  is <- lookForIS
+  ps <- lookForPS
+  return $ singlePointCrossoverP is ps pc
 
 {- Multipoint crossover -}
 foldInHalf s = S.zip top bottom where (top, bottom) = S.splitAt (S.length s `div` 2) s

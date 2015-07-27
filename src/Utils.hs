@@ -1,14 +1,8 @@
 {-# LANGUAGE  FlexibleContexts, TypeFamilies #-}
 module Utils where
 
---import Data.Random.Source
---import Data.Random.Source.PureMT
-import Data.Random.Sample
-import Data.Random.Distribution.Exponential
-import Data.Random.Distribution.Uniform
 import qualified Data.Sequence as S
 import qualified Data.Foldable as F
-import Data.List.Split
 
 import Control.Applicative
 import Control.Monad.State.Lazy
@@ -46,18 +40,41 @@ smap :: (a -> b) -> S.Seq a -> S.Seq b
 smap = fmap
 
 
+compareFitnesses = compare `on` fitness
+
+fittestIndividual :: (F.Foldable t) => t (Evaled a b) -> (Evaled a b)
+fittestIndividual = F.maximumBy compareFitness
+
+--ensure an individual is in a population
+ensureElem :: (Eq a) => S.Seq a -> a -> S.Seq a
+ensureElem population individual =
+  if individual `F.elem` population
+    then population
+    else individual S.<| (S.take ((S.length population) - 1) population)
+
+ensureElems population individuals =
+  F.foldr (flip ensureElem) population individuals
+
+compareFitness :: (Evaled a b) -> (Evaled a b) -> Ordering
+compareFitness = compare `on` fitness
+
+sortByFitness = S.sortBy compareFitness
+
+kFittest k pop = S.take k $ sortByFitness pop
+
+
 {- Diversity Measures -}
 --TODO consider incorporating the edit-distance package
 --to provide diversity of RGEP phenotypes.
 --TODO this maybe should be in another file?
 --make this type more generic
---this comes from "Measurements of Population Diversity"
 
 --splits out bits before calculating diversity
 wordDiversity :: (Bits n) => Int -> S.Seq (S.Seq n) -> Double
 wordDiversity bits iss =
   centroidDiversity $ fmap (S.fromList . F.concat . fmap (expandBits bits)) iss
 
+--this comes from "Measurements of Population Diversity"
 centroidDiversity :: (Integral n) => S.Seq (S.Seq n) -> Double
 centroidDiversity dss = diversity' (S.length dss) $ F.toList $ fmap F.toList $ (fmap (fmap fromIntegral)) dss
 

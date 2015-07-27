@@ -5,33 +5,84 @@ module RGEP where
 
 import qualified Data.Sequence as S
 import qualified Data.Vector as V
-import Data.List.Split
 import qualified Data.Traversable as T
 import qualified Data.Foldable as F
-import qualified Data.Vector as V
 import Data.Random
---import Data.Conduit
+import Data.Tree
+
+import Math.Polynomial
+
+import Pipes
+import qualified Pipes.Safe as PS
+
+import Diagrams.TwoD.Layout.Tree
+import Diagrams.Prelude as D hiding (rotation)
 
 import qualified Pipes.Prelude as P
 
-import Control.Applicative
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.State.Lazy
-import Control.Monad.Free
-import Control.Monad.Operational
+import Control.Monad.Operational as Op
 
 
-import Common
+import Common hiding ((<>))
 import Types
 import UtilsRandom
 import PointMutation
 import Crossover
+import PipeOperators
 import Rotation
 import Selection
 import Evaluation
 import Utils
 
+
+{- RGEP Types -}
+
+data StackI a b where
+  Pop :: StackI a a
+  Push :: a -> StackI a ()
+  Try :: StackAST a () -> StackI a ()
+
+type StackAST a b = Program (StackI a) b
+
+type Sym = String
+
+data Arity = Arity { inputs :: Int
+                   , outputs :: Int
+                   } deriving (Show, Eq)
+
+instance Monoid Arity where
+  (Arity ins outs) `mappend` (Arity ins' outs') =
+    Arity (ins   + max 0 (ins' - outs))
+          (outs' + max 0 (outs - ins'))
+  mempty = Arity 0 0
+
+type StackProg a = [a] -> [a]
+
+--TODO could have a combining applicative/monoid/something instance
+data Op a = Op { name :: Sym
+               , arity :: Arity
+               , program :: StackAST a ()
+               , treeProgram :: StackAST (Tree Sym) ()
+               }
+
+instance Show (Op a) where
+  show = name
+
+instance Eq (Op a) where
+  (Op sym arity _ _) == (Op sym' arity' _ _) = sym == sym' && arity == arity'
+
+
+type Decoder a = Word32 -> Op a
+
+data RGEPPhenotype a = RGEPPhenotype
+                     { rgepTree :: Tree Sym
+                     , rgepTreeless :: a
+                     }
+                     deriving (Show, Eq)
+
+type RGEPExpressed a = Expressed Ind32 (RGEPPhenotype a)
+
+type RGEPEval a = Evaled Ind32 (RGEPPhenotype a)
 
 
 pop :: StackAST a a
@@ -47,7 +98,7 @@ evalStack :: StackAST a b -> (Maybe b, [a])
 evalStack prog = evalStack' prog []
 
 evalStack' :: StackAST a b -> [a] -> (Maybe b, [a])
-evalStack' prog as = eval (view prog) as
+evalStack' prog as = eval (Op.view prog) as
   where
     eval :: ProgramView (StackI a) b -> [a] -> (Maybe b, [a])
     eval (Return b)      as     = (Just b, as)
@@ -58,17 +109,34 @@ evalStack' prog as = eval (view prog) as
                                     (Nothing, _) -> evalStack' (k ()) as
                                     (Just b, as') -> evalStack' (k ()) as'
 
-{- Operators -}
-mkOp1 name f = Op name (Arity 1 1) onHead where
-  onHead = pop >>= push . f
+showPrefix (Node nam []) = " " ++ nam
+showPrefix (Node nam as) = " (" ++ nam ++ (concatMap showPrefix as) ++ ")"
+showPostfix (Node nam []) = " " ++ nam
+showPostfix (Node nam as) = concatMap showPostfix as ++ " " ++ nam
 
-mkOp2 name f = Op name (Arity 2 1) onTwo where
-  onTwo = do
+treeDiagram tree =
+  renderTree ((<> circle 1 # fc white) . centerXY . text)
+             (\p p' -> (p ~~ p'))
+             (symmLayout' (with & slHSep .~ 4 & slVSep .~ 4) tree)
+  # alignL # pad 1.1 # scale 20
+
+{- Operators -}
+mkOp1 name f = Op name (Arity 1 1) onHead buildTree where
+  onHead = try (pop >>= push . f)
+  buildTree = try (pop >>= \tree -> push (Node name [tree]))
+
+mkOp2 name f = Op name (Arity 2 1) onTwo buildTree where
+  onTwo = try $ do
     a <- pop
     b <- pop
     push (f a b)
+  buildTree = try $ do
+    a <- pop
+    b <- pop
+    push $ Node name [a, b]
 
-mkTerm name v = Op name (Arity 0 1) (push v)
+mkTerm name v =
+  Op name (Arity 0 1) (push v) (push $ Node name [])
 
 --Generic operators
 idOp = mkOp1 "id" id
@@ -78,32 +146,35 @@ plusOp, minusOp, timesOp, divOp, incOp, zeroTerm, oneTerm, twoTerm :: Op Double
 plusOp = mkOp2 "+"    (+)
 minusOp = mkOp2 "-"   (-)
 timesOp = mkOp2 "*"   (*)
+safeDivOp = mkOp2 "/" (safeDiv)
 divOp = mkOp2 "/"     (/)
 incOp = mkOp1 "inc"   (1.0 +)
 zeroTerm = mkTerm "0" (0.0)
 oneTerm = mkTerm "1"  (1.0)
 twoTerm = mkTerm "2"  (2.0)
 
-arithOps = [plusOp, minusOp, timesOp, divOp, incOp, zeroTerm, oneTerm, twoTerm]
+safeDiv x y = if y == 0 then 0 else x / y
 
-noop = do
+arithOps = [plusOp, minusOp, timesOp, safeDivOp, incOp, zeroTerm, oneTerm, twoTerm]
+
+noop = try $ do
   a <- pop
   push a
 
-dupProg = do
+dupProg = try $ do
   a <- pop
   push a
   push a
 
 -- Stack operations
 dup    = Op "dup"  (Arity 1 2) dupProg
-dropOp = Op "drop" (Arity 1 0) pop
-swap   = Op "swap" (Arity 2 2) $ do
+dropOp = Op "drop" (Arity 1 0) $ try pop
+swap   = Op "swap" (Arity 2 2) $ try $ do
   a <- pop
   b <- pop
   push a
   push b
-tuck   = Op "tuck" (Arity 2 3) $ do
+tuck   = Op "tuck" (Arity 2 3) $ try $ do
   a <- pop
   b <- pop
   push a
@@ -126,42 +197,48 @@ clearBitOp bitNum size = mkOp1 ("Clear " ++ show bitNum) (flip clearBit bitNum)
 setBitTerm bitNum size = mkTerm (show bitNum) (bit bitNum)
 
 allBitsTerm, noBitsTerm :: Int -> Op Integer
-allBitsTerm size = mkTerm "All" ((2 ^ size) - 1)
+allBitsTerm size = mkTerm "All" ((2 ^ (round $ logBase 2 $ fromIntegral size)) - 1)
 noBitsTerm size  = mkTerm "0" 0
 
 keepOnly n val = ((2 ^ n) - 1) .&. val
 
+setBitOps n = [setBitOp i (fromIntegral n) | i <- [0..n-1]]
+setBitTerms n = [setBitTerm i (fromIntegral n) | i <- [0..n-1]]
+
 --Set operators extended with extra operators to set each bit.
-bitSetOpsExtended n = bitSetOps n ++ [setBitOp i (fromIntegral n) | i <- [0..n-1]]
+bitSetOpsExtended n = setBitOps n ++ bitSetOps n
 --Operations for finding a set of items.
-bitSetOps n = bitSetOpsSimple n ++ map ($ (fromIntegral n)) [complementOp, allBitsTerm, noBitsTerm]
+bitSetOps n =
+  bitSetOpsSimple n
+  ++
+  map ($ (fromIntegral n)) [complementOp, allBitsTerm, noBitsTerm]
 --Simple set of  operations for finding a set. Removes advantage of setting and clearing all bits.
 bitSetOpsSimple n =
-  [setBitTerm i (fromIntegral n) | i <- [0..n-1]]
+  bitSetOps n
   ++
   map ($(fromIntegral n)) [unionOp, removeOp, intersectionOp]
 
 --Polynominal (single variable)
-polyOp2 nam op = mkOp2 nam (\f g x -> f x `op` g x)
-polyConst nam v = mkTerm nam $ const v
+polyOp2 nam op = mkOp2 nam op --(\f g x -> f x `op` g x)
+polyConst nam v = mkTerm nam $ constPoly v
 
-polyPlus = polyOp2 "+" (+)
-polyMinus = polyOp2 "-" (-)
-polyTimes = polyOp2 "*" (*)
-polyX = mkOp1 "x" id
+polyPlus = polyOp2 "+" addPoly
+polyMinus = polyOp2 "-" (\p p' -> p `addPoly` (negatePoly p'))
+polyTimes = polyOp2 "*" (multPoly)
+polyX = mkTerm "x" x
 polyZero = polyConst "0"  0.0
 polyOne  = polyConst "1"  1.0
 polyTwo  = polyConst "2"  2.0
 polyFive = polyConst "5"  5.0
 polyTen  = polyConst "10" 10.0
 
-polyOps :: [Op (Double -> Double)]
-polyOps = [polyPlus, polyMinus, polyTimes, polyX, polyZero, polyOne, polyTwo, polyFive, polyTen]
+polyOps :: [Op (Poly Double)]
+polyOps = [polyPlus, polyMinus, polyTimes, polyX,
+           polyZero, polyOne,   polyTwo,   polyFive, polyTen]
 
 errorOn :: [(Double, Double)] -> (Double -> Double) -> Double
 errorOn trainingData f =
-  negate . sum . map (^2) $ zipWith (-) (map snd trainingData)
-                               (map (f . fst) trainingData)
+  abs . sum $ map (\(input, result) -> (f input - result) ^ 2) trainingData
 
 --Extra function operations
 logOp = mkOp1 "log" (log)
@@ -171,19 +248,20 @@ logOp = mkOp1 "log" (log)
 -- Decision trees
 -- Neural Networks
 --Tree creating ops
---mkTree op = mkOp1 treeRoot
---mkChildren = treeChildren :: [ExprTree a]
 
 {- Gene Expression -}
+runRGEPProgram defaul opList =
+  let result = evalStack $ foldr (>>) noop opList
+  in case result of
+       (_, [])     -> defaul
+       (Just _, a:as)  -> a
+
 rgepRun :: Decoder a -> a -> Ind32 -> RGEPExpressed a
 rgepRun decoder defaul as =
-  let opList = map (program . decoder) $ F.toList as
-      result = evalStack $ foldr (>>) noop opList
-      treeless = case result of
-                   (_, [])     -> defaul
-                   (Just _, a:as)  -> a
-      --TODO create ops from existing ones which build trees.
-      tree = ExprTree undefined undefined
+  let decoded = map decoder $ F.toList as
+      opList = map program decoded
+      treeless = runRGEPProgram defaul opList
+      tree = runRGEPProgram (Node "" []) $ map treeProgram decoded
   in
     Expressed as $ RGEPPhenotype tree treeless
 
@@ -226,16 +304,6 @@ decodeSymbols terms nonterms = let
                 in symV V.! (index `mod` V.length symV)
 
 
-{- Elitism -}
-elitism ::
-  Int ->
-  (Pop (Evaled a b) -> RVarT m (Pop a)) ->
-  Pop (Evaled a b) ->
-  RVarT m (Pop a)
-elitism k select pop = do
-  let (elite, common) = S.splitAt k $ S.sortBy compareFitnesses pop
-  selected <- select common
-  return (genetics elite S.>< selected)
 
 
 {- Basic RGEP implementation -}
@@ -262,7 +330,7 @@ rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
       loop gens pop = do
         popEvaled <- evaluator pop
         popSelected <- elitism 1 (stochasticTournament pt) popEvaled
-        popCrossed1 <- singlePointCrossoverM pc1 popSelected
+        popCrossed1 <- singlePointCrossoverM is ps pc1 popSelected
         popCrossed2 <- multipointCrossoverM pc2 2 popCrossed1
         popMutated <- pointMutation pm is 1 popCrossed2
         popRotated <- rotation pr popMutated

@@ -71,6 +71,7 @@ library
 
   ghc-options: -O2
                -threaded
+               ---fwarn-unused-imports
                "-with-rtsopts=-N -h -p -s -i0.1"
 
   ghc-prof-options: -O2
@@ -95,6 +96,7 @@ library
                  monads-tf,
                  split < 0.3.0,
                  void,
+                 lens,
                  comonad < 4.3,
                  deepseq-generics,
                  deepseq,
@@ -105,6 +107,8 @@ library
                  text < 1.12,
                  monad-loops,
                  stm,
+                 diagrams-contrib,
+                 polynomial < 1.0,
 
                  --may not be using
                  mono-traversable < 0.10,
@@ -259,6 +263,7 @@ Executable misc
                  Chart-diagrams,
                  data-default >= 0.5,
                  filepath,
+                 polynomial < 1.0,
                  cassava
 
   main-is: Main.hs
@@ -269,6 +274,7 @@ Executable misc
                -threaded
                -- -fprof-auto
                -- -eventlog
+               ---fwarn-unused-imports
                -with-rtsopts=-N -i0.1"
 
   ghc-prof-options: -O2

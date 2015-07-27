@@ -56,56 +56,18 @@ type Prob = Double
 {- Heal Monad -}
 --newtype Heal a = Heal { runHeal :: Rand a }
 
-{- RGEP Types -}
+data Expressed a b = Expressed
+                   { genetic  :: a
+                   , expression :: b
+                   } deriving (Eq, Show, G.Generic)
 
-data StackI a b where
-  Pop :: StackI a a
-  Push :: a -> StackI a ()
-  Try :: StackAST a () -> StackI a ()
+data Evaled a b = Evaled
+                { expressed :: Expressed a b
+                , fitness :: Double
+                } deriving (Show, Eq, G.Generic)
 
-type StackAST a b = Program (StackI a) b
-
-type Sym = String
-
-data Arity = Arity { inputs :: Int
-                   , outputs :: Int
-                   } deriving (Show, Eq)
-
-instance Monoid Arity where
-  (Arity ins outs) `mappend` (Arity ins' outs') =
-    Arity (ins   + max 0 (ins' - outs))
-          (outs' + max 0 (outs - ins'))
-  mempty = Arity 0 0
-
-type StackProg a = [a] -> [a]
-
---TODO could have a combining applicative/monoid/something instance
-data Op a = Op { name :: Sym
-               , arity :: Arity
-               , program :: StackAST a ()
-               }
-
-data ExprTree a = ExprTree
-                { treeRoot :: Op a
-                , treeChildren :: [ExprTree a]
-                }
-
-instance Show (Op a) where
-  show = name
-
-type Decoder a = Word32 -> Op a
-
-type Expresser a = (S.Seq (Op a)) -> a
-
-data RGEPPhenotype a = RGEPPhenotype
-                     { rgepTree :: ExprTree a
-                     , rgepTreeless :: a
-                     }
-
-type RGEPExpressed a = Expressed Ind32 (RGEPPhenotype a)
-
-type RGEPEval a = Evaled Ind32 (RGEPPhenotype a)
-
+instance (NFData a, NFData b) => NFData (Expressed a b) where rnf = genericRnf
+instance (NFData a, NFData b) => NFData (Evaled a b) where rnf = genericRnf
 
 {- General Types -}
 
@@ -135,18 +97,6 @@ type PopVBits = V.Vector IndBits
 
 newtype Genetic a = Genetic { unGenes :: a }
 
-data Expressed a b = Expressed
-                   { genetic  :: a
-                   , expression :: b
-                   } deriving (Eq, Show, G.Generic)
-
-data Evaled a b = Evaled
-                { expressed :: Expressed a b
-                , fitness :: Double
-                } deriving (Show, Eq, G.Generic)
-
-instance (NFData a, NFData b) => NFData (Expressed a b) where rnf = genericRnf
-instance (NFData a, NFData b) => NFData (Evaled a b) where rnf = genericRnf
 
 {- Pipe Helpers -}
 data Chunk f a = Piece (f a)

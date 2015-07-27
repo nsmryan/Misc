@@ -1,34 +1,34 @@
 module Examples where
 
-import Control.Monad.ST
-import Control.Monad.Primitive.Class
-import Control.Monad
-import qualified Control.Concurrent as Con
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.State.Lazy
-
-import Text.Printf
-
-import Data.List
-import Data.Ord
-import Data.Word
-import qualified Data.Vector as V
-import qualified Data.Sequence as S
-import qualified Data.Foldable as F
-import Data.Function
-import qualified Data.Bits as B
-import Data.Word
-
-import PointMutation
-import Utils
-import Rotation
-import RGEP
-import Types
-import UtilsRandom
-import Evaluation
-import GA
-
+--import Control.Monad.ST
+--import Control.Monad.Primitive.Class
+--import Control.Monad
+--import qualified Control.Concurrent as Con
+--import Control.Monad.IO.Class
+--import Control.Monad.Trans.Class
+--import Control.Monad.Trans.State.Lazy
+--
+--import Text.Printf
+--
+--import Data.List
+--import Data.Ord
+--import Data.Word
+--import qualified Data.Vector as V
+--import qualified Data.Sequence as S
+--import qualified Data.Foldable as F
+--import Data.Function
+--import qualified Data.Bits as B
+--import Data.Word
+--
+--import PointMutation
+--import Utils
+--import Rotation
+--import RGEP
+--import Types
+--import UtilsRandom
+--import Evaluation
+--import GA
+--
 
 
 

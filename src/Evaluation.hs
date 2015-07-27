@@ -4,9 +4,7 @@ module Evaluation where
 import qualified Data.Traversable as T
 import qualified Data.Sequence as S
 import qualified Data.Foldable as F
-import Data.Random
 
-import Control.Monad.IO.Class
 import Control.Applicative
 
 import qualified Pipes.Prelude as P
@@ -15,8 +13,8 @@ import Pipes.Safe
 
 import Types
 import Common
-import UtilsRandom
 import PipeOperators
+import Utils
 
 
 evaled individual fitness = Evaled individual fitness
@@ -35,8 +33,6 @@ evaluationM eval pop = T.mapM (\ind -> Evaled ind <$> (eval $ expression ind)) p
 expresseds  is = fmap expressed is
 expressions is = fmap (expression . expressed) is
 genetics    is = fmap (genetic . expressed) is
-
-compareFitnesses = compare `on` fitness
 
 --runExprTree :: ExprTree a -> a
 --runExprTree (ExprTree root children) =
@@ -68,7 +64,8 @@ fitnessBlock fitnessFunction = return $ P.map $ fmap (uncurry Evaled . (id &&& f
 --TODO should get a directory to start logging into.
 logFitness ::
   Block (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b))
-logFitness = loggingBlock $ return $ hoist lift $ logTo "fitness.log" $ logFitness'
+logFitness =
+  loggingBlock $ return $ logTo "fitness.log" $ logFitness'
 
 logFitness' ::
   Pipe (Pop (Evaled (Ind a) b)) String (SafeT IO) r
@@ -80,6 +77,6 @@ logFitness' = do
       let best = fitness $ fittestIndividual pop
       let fits = fmap fitness pop
       let avg = F.sum fits / (fromIntegral $ S.length fits)
-      yield $ (show avg) ++ ", " ++ (show best) ++ "\n"
+      yield $ (show avg) ++ ", " ++ (show best)
       loop
 

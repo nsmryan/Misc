@@ -3,25 +3,25 @@ module PipeAlgorithms where
 
 --import Math.Probable
 
-import qualified Data.Sequence as S
-import Data.Random
-import Data.Random.Distribution.Uniform
-
-import Control.Monad
-
-import Pipes.Safe
-import Pipes
-
-import PipeOperators
-import Selection
-import Channels
-import PointMutation
-import Crossover
-import Rotation
-import UtilsRandom
-import RGEP
-import Types
-import Evaluation
+--import qualified Data.Sequence as S
+--import Data.Random
+--import Data.Random.Distribution.Uniform
+--
+--import Control.Monad
+--
+--import Pipes.Safe
+--import Pipes
+--
+--import PipeOperators
+--import Selection
+--import Channels
+--import PointMutation
+--import Crossover
+--import Rotation
+--import UtilsRandom
+--import RGEP
+--import Types
+--import Evaluation
 
 
 

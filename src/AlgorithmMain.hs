@@ -12,15 +12,15 @@ import Data.Default
 import Data.Csv as CSV
 import Data.Colour.Names
 import Data.Colour.SRGB
-import Data.Random
+import Data.Tree
 
 import Control.Applicative
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Monad.STM
 
+import Math.Polynomial
+
 import Diagrams.Prelude as D hiding ((<>))
-import Diagrams.TwoD.Combinators as DC
 --import Diagrams.Backend.Cairo
 import Diagrams.Backend.SVG
 
@@ -34,13 +34,11 @@ import Pipes.Safe as PS
 
 import System.FilePath.Posix
 
-import HealMonad
+
 import Common
 import UtilsRandom
 import Utils
-import GA
 import RGEP
-import PipeAlgorithms
 import PointMutation
 import Rotation
 import Crossover
@@ -55,8 +53,23 @@ import Channels as Ch
 mainCfgFileName = Optional "main.cfg"
 defaultCfgName = Optional "default.cfg"
 
+mainWith process postProcess = do
+  {- Get command line options -}
+  options <- execParser (info (helper <*> parseOptions) fullDesc)
+
+  {- Get configuration files -}
+  config <- loadConfiguration $ configFiles options
+
+  {- Perform Processing -}
+  result <- process config
+
+  {- perform post-processing -}
+  postProcess config result
+
 
 {- Diagram stuff -}
+textDiagram str = text str # fontSizeL 2 # fc black <> square 100 # fc white
+
 --bitBlock :: (Renderable (Path R2) b) => Bool -> Diagram b R2
 bitBlock b = square 1 # (fc $ if b == 1 then black else white)
 
@@ -99,61 +112,71 @@ chartCSV denv fileName colNames = do
       return $ Just fitnessGraph
 
 
-{- RGEP Main -}
-rgepMain :: [Op a] -> (RGEPExpressed a -> Double) -> a -> IO ()
-rgepMain ops fitnessFunction defaul = do
-  {- Get command line options -}
-  options <- execParser (info (helper <*> parseOptions) fullDesc)
-
-  {- Get configuration files -}
-  config <- loadConfiguration $ configFiles options
-
-  {- Run algorithm -}
-  pop <- processRGEP ops fitnessFunction defaul config
-
-  {- Post Process -}
-  postProcessRGEP pop
-postProcessRGEP pop = do
-  denv <- defaultEnv vectorAlignmentFns 1000 1000
-  (Just fitnessGraph) <- chartCSV denv "fitness.log" ["Average", "Best"]
-
-  let fitDiagram = textDiagram $ show $ pop
-
-  renderSVG "summary.svg" (Width 1000) $ (fitnessGraph === fitDiagram)
-  print pop
-
-textDiagram str = text str # fontSizeL 2 # fc black <> square 100 # fc white
-
-processRGEP :: [Op a] -> (RGEPExpressed a -> Double) -> a -> Config -> IO Pop32
-processRGEP ops fitnessFunction defaul config = do
-  ps   <- C.lookupDefault (50    :: Int)    config "ps"
-  is   <- C.lookupDefault (100   :: Int)    config "is"
+processRGEP ::
+  [Op a] ->
+  a ->
+  (RGEPExpressed a -> Double) ->
+  Config ->
+  IO (Pop (RGEPEval a))
+processRGEP ops defaul fitnessFunction config = do
+  ps <- C.lookupDefault (50  :: Int) config "ps"
+  is <- C.lookupDefault (100 :: Int) config "is"
 
   let bits = bitsUsed ops
 
   initialPopulation <- rIO $ pop32 ps is bits
 
-  mutation       <- runBlock config pmBlock
-  crossover1     <- runBlock config crossoverBlock
-  crossover2     <- runBlock config (multipointCrossoverBlock 2)
-  selection      <- runBlock config tournamentBlock
-  rotation       <- runBlock config rotationBlock
-  expressionPipe <- runBlock config (rgepExpressionBlock ops defaul)
-  fitnessPipe    <- runBlock config (fitnessBlock fitnessFunction)
-  generations    <- runBlock config gensBlock
-  logFitnessPipe <- runBlock config logFitness
+  (pipe, evalPipe) <- runBlock config $ do
+    mutation       <- pmBlock
+    crossover1     <- crossoverBlock
+    crossover2     <- (multipointCrossoverBlock 2)
+    selection      <- tournamentBlock
+    rotation       <- rotationBlock
+    expressionPipe <- (rgepExpressionBlock ops defaul)
+    fitnessPipe    <- (fitnessBlock fitnessFunction)
+    generations    <- gensBlock
+    logFitnessPipe <- logFitness
 
-  cycleWith initialPopulation $
-    (expressionPipe >-> fitnessPipe >-> logFitnessPipe >-> generations >->
-     selection >-> rotation >-> mutation >-> crossover1 >-> crossover2)
+    let mainPipe = selection >-> rotation >-> mutation >-> crossover1 >-> crossover2
+    elitism        <- elitismBlock 1 mainPipe
+    let pipe = (expressionPipe >-> fitnessPipe >-> logFitnessPipe >->
+                elitism >-> generations)
+    let evalPipe = expressionPipe >-> fitnessPipe
+    return (pipe, evalPipe)
 
-  (output, input, seal) <- PS.runSafeT $ rIO $ compileChain $ Link
-    (expressionPipe >-> fitnessPipe >-> logFitnessPipe >-> generations >->
-     selection >-> rotation >-> mutation >-> crossover1 >-> crossover2)
-  result <- Ch.place (output, input) initialPopulation
-  atomically seal
-  return result
+  (output, input, cleanup) <-
+    compileChain (PS.runSafeT . rIO) $ Cycle $ Link pipe
+  pop <- Ch.place (output, input) initialPopulation
+  liftIO $ cleanup
 
+  (output, input, cleanup) <-
+    compileChain (PS.runSafeT . rIO) $ Link evalPipe
+  evaledPop <- Ch.place (output, input) pop
+  liftIO $ cleanup
+
+  return evaledPop
+
+
+postProcessRGEP :: Config -> (Pop (RGEPEval Integer)) -> IO ()
+postProcessRGEP config pop = do
+  --let fitDiagram = textDiagram $ show $ fmap (genetic . expressed) pop
+
+  let best = fittestIndividual pop
+  let bestTreeless = rgepTreeless . expression . expressed $ best
+  let bestTree = rgepTree . expression . expressed $ best
+
+  putStrLn $ drawTree bestTree
+  putStrLn $ showPrefix bestTree
+  putStrLn $ showPostfix bestTree
+  putStrLn $ printf "%08X" $ bestTreeless
+  putStrLn $ show $ popCount $ bestTreeless
+  --putStrLn $ "fitness: " ++ (show . fitness $ best)
+
+  denv <- defaultEnv vectorAlignmentFns 1000 1000
+  (Just fitnessGraph) <- chartCSV denv "fitness.log" ["Average", "Best"]
+  renderSVG "summary.svg" (Width 1000) $ bg white $ (fitnessGraph === (treeDiagram bestTree))
+  --print $ show bestTreeless
+  print "Done"
 
 {- Genetic Algorithm Main -}
 gaMain :: (Ind32 -> b) -> (b -> Double) -> IO ()
@@ -195,29 +218,28 @@ processGA expressionFunction fitnessFunction config = do
   ps   <- C.lookupDefault (50    :: Int)    config "ps"
   is   <- C.lookupDefault (100   :: Int)    config "is"
 
-  --rIO $ parallelGA 50 1000 100 0.01 0.6 ones
-  --runApp config $ geneticAlgorithmApp ones
-  --rIO . runStage' 0 . cycleNTimes 1000 $ simpleStage
-
   initialPopulation <- rIO $ pop32 ps is 1
 
-  mutation       <- runBlock config pmBlock
-  crossover      <- runBlock config crossoverBlock
-  selection      <- runBlock config tournamentBlock
-  expressionPipe <- runBlock config (expressionBlock expressionFunction)
-  fitnessPipe    <- runBlock config (simpleFitnessBlock fitnessFunction)
-  diversityPipe  <- runBlock config logWordDiversity
-  logLocusPipe   <- runBlock config logAvgLocus
-  generations    <- runBlock config gensBlock
-  logFitnessPipe <- runBlock config logFitness
+  pipe <- runBlock config $ do
+    mutation       <- pmBlock
+    crossover      <- crossoverBlock
+    selection      <- tournamentBlock
+    expressionPipe <- (expressionBlock expressionFunction)
+    fitnessPipe    <- (simpleFitnessBlock fitnessFunction)
+    diversityPipe  <- logWordDiversity
+    logLocusPipe   <- logAvgLocus
+    generations    <- gensBlock
+    logFitnessPipe <- logFitness
+    return (diversityPipe >-> logLocusPipe   >-> expressionPipe >->
+            fitnessPipe   >-> logFitnessPipe >-> selection      >->
+            mutation      >-> crossover      >-> generations)
 
-  cycleWith initialPopulation $
-    (diversityPipe >-> logLocusPipe   >-> expressionPipe >->
-     fitnessPipe   >-> logFitnessPipe >-> generations    >->
-     selection     >-> mutation       >-> crossover)
+  (output, input, cleanup) <-
+     compileChain (PS.runSafeT . rIO )$ Cycle $ Link pipe
+  pop <- Ch.place (output, input) initialPopulation
+  liftIO $ cleanup
 
-  --rIO $ pipedGA ps is gens pm pc fitnessFunction
-
+  return pop
 
 
 {- Configuration Files -}

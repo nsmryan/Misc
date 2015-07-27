@@ -6,28 +6,21 @@ import Prelude as P
 import qualified Data.Sequence as S
 import qualified Data.Foldable as F
 import qualified Data.Vector as V
-import Data.Function
 import Data.Bits
 import Data.Word
-import Data.List.Split
-import Data.Maybe
 import Data.HashMap.Strict hiding (map)
-import Data.Colour.Palette.ColorSet
 import Data.Colour.SRGB as RGB
 import Data.Configurator as C
-import Data.Default
 import Data.Random
 
 import Diagrams.Prelude hiding ((<>))
 --import Diagrams.Backend.Cairo
 
 import Control.Monad
-import Control.Applicative
-import Control.Arrow
-import Control.Concurrent.Async
-import Control.Concurrent
 
 import Text.Printf
+
+import Math.Polynomial
 
 import System.Process
 import System.Remote.Monitoring
@@ -35,34 +28,26 @@ import System.Remote.Counter
 import System.Metrics.Distribution as MD
 import System.Metrics
 import System.Remote.Label as L
-import System.Remote.Monitoring.Statsd
 
 import Options.Applicative as OPT
 
---import Graphics.GChart
-import Graphics.Rendering.Chart
-import Graphics.Rendering.Chart.Backend.Diagrams
 
 import RGEP
 import Types
 import UtilsRandom
-import Evaluation
-import Conduit
-import Utils
 import GA
-import Common
-import PipeAlgorithms
-import Channels
-import HealMonad
 import AlgorithmMain
 
 --main function should be able to choose some default problems and
 --algorithms
 
-trainingSet = [(i, i) | i <- [0..50.0]]
-main = rgepMain polyOps ((1/) . abs . errorOn trainingSet . rgepTreeless . expression) (const 0)--(errorOn trainingSet)
-
-findRandomSequence = undefined
+trainingSet = [(i, i^2 + 3*i + 1) | i <- [0..10.0]]
+main = mainWith (processRGEP ops defaul fitnessFunction) postProcessRGEP where
+  --ops = bitSetOps 32
+  ops = let bits = 32 in unionOp bits:setBitTerms bits
+  defaul = 0
+  fitnessFunction = (fromIntegral . popCount . rgepTreeless . expression)
+  --fitnessFunction = ((safeDiv 1) . errorOn trainingSet . evalPoly . rgepTreeless . expression)
 
 --main = gaMain id sumOnes
 

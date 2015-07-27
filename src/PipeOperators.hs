@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 module PipeOperators where
 
 
 import Pipes
 import qualified Pipes.Prelude as P
 import Pipes.Concurrent
-import qualified Pipes.Safe.Prelude as PS
-import Pipes.Safe
+import Pipes.Safe as Safe
 import qualified Pipes.ByteString as PB
 
 --import Math.Probable
@@ -16,18 +16,15 @@ import qualified Data.Sequence as S
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Data.Configurator as C
-import Data.Maybe
 import Data.List
 import Data.String
 import Data.Random
-import qualified Data.ByteString.Lazy as BL
 
-import Control.Monad.Identity
 import Control.Monad
-import Control.Monad.Catch
 import Control.Applicative
 import Control.Monad.Trans.Reader
 import Control.Concurrent.Async
+import Control.Monad.Trans.State
 
 import Debug.Trace
 
@@ -36,7 +33,6 @@ import System.IO
 import Common
 import Types
 import Utils
-import Channels
 import UtilsRandom
 
 
@@ -67,59 +63,48 @@ lookForPS   = lookupConfig (50    :: Int)    "ps"
 lookForIS   = lookupConfig (200   :: Int)    "is"
 
 {- Elitism -}
---K-Elitism specialized for the k = 1 case
-fittestIndividual = F.maximumBy compareFitness
-
-keepFittestP :: (Eq (Evaled (Ind a) b)) =>
-  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
-keepFittestP = do
-  population <- await
-  keepFittestP' $ fittestIndividual population
-
-keepFittestP' :: (Eq (Evaled (Ind a) b)) =>
-  (Evaled (Ind a) b) ->
-  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
-keepFittestP' fittest = do
-  population <- await
-  let newFittest = fittestIndividual population
-  if fittest `F.elem` population
-    then
-      yield population
-    else
-      yield $ fittest S.<| (S.drop 1 population)
-  keepFittestP' newFittest
-
-compareFitness :: (Evaled a b) -> (Evaled a b) -> Ordering
-compareFitness = compare `on` fitness
-
-sortByFitness = S.sortBy compareFitness
-
-kFittest k pop = S.take k $ sortByFitness pop
-
-elitismP :: (Eq a, Eq b) =>
+elitismBlock ::
+  (Eq a) =>
   Int ->
-  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
-elitismP 1 = keepFittestP
-elitismP k = do
-  population <- await
-  keepK k $ kFittest k population
+  Pipe (Pop (Evaled a b)) (Pop a) (RVarT (Safe.SafeT IO)) () ->
+  Block (Pop (Evaled a b)) (Pop a)
+elitismBlock k pipe =
+  return $ elitismP k pipe
 
---ensure an individual is in a population
-ensureElem :: (Eq a) => S.Seq a -> a -> S.Seq a
-ensureElem population individual =
-  if individual `F.elem` population
-    then population
-    else individual S.<| (S.take ((S.length population) - 1) population)
-
-keepK :: (Eq a, Eq b) =>
+elitismP ::
+  (Eq a) =>
   Int ->
-  (Pop (Evaled (Ind a) b)) ->
-  Pipe (Pop (Evaled (Ind a) b)) (Pop (Evaled (Ind a) b)) (RVarT m) r
-keepK k best = do
-  population <- await
-  let newBest = kFittest k population
-  yield $ F.foldl ensureElem population best
-  keepK k newBest
+  Pipe (Pop (Evaled a b)) (Pop a) (RVarT (Safe.SafeT IO)) () ->
+  Pipe (Pop (Evaled a b)) (Pop a) (RVarT (Safe.SafeT IO)) ()
+elitismP k pipe = do
+  hoist (flip evalStateT S.empty)
+        (storeFittest k >-> hoist lift pipe >-> ensureFittest)
+
+storeFittest ::
+  Int ->
+  Pipe (Pop (Evaled a b)) (Pop (Evaled a b)) (StateT (Pop a) (RVarT (Safe.SafeT IO))) ()
+storeFittest  k = forever $ do
+  pop <- await
+  lift $ put $ fmap (genetic . expressed) $ kFittest k pop
+  yield pop
+
+ensureFittest ::
+  (Eq a) =>
+  Pipe (Pop a) (Pop a) (StateT (Pop a) (RVarT (Safe.SafeT IO))) ()
+ensureFittest = forever $ do
+  pop <- await
+  elitest <- lift get
+  yield $ ensureElems pop elitest
+
+elitism ::
+  Int ->
+  (Pop (Evaled a b) -> RVarT m (Pop a)) ->
+  Pop (Evaled a b) ->
+  RVarT m (Pop a)
+elitism k select pop = do
+  let (elite, common) = S.splitAt k $ S.sortBy compareFitnesses pop
+  selected <- select common
+  return (fmap (genetic . expressed) elite S.>< selected)
 
 {- Logging -}
 
@@ -135,7 +120,7 @@ logAvgLocus :: Block Pop32 Pop32
 logAvgLocus = loggingBlock $ do
   bitsUsed <- lookupConfig 1 "bitsUsed"
   is <- lookupConfig (error "individual size not provided") "is"
-  return $ hoist lift $ logTo "locus.log" $ logAvgLocus' bitsUsed (is :: Int)
+  return $ logTo "locus.log" $ logAvgLocus' bitsUsed (is :: Int)
 
 logAvgLocus' :: Int -> Int -> Pipe Pop32 String (SafeT IO) r
 logAvgLocus' bitsUsed is = do
@@ -154,7 +139,7 @@ logAvgLocus' bitsUsed is = do
 logWordDiversity :: Block Pop32 Pop32
 logWordDiversity = loggingBlock $ do
   bitsUsed <- lookupConfig 1 "bitsUsed"
-  return $ hoist lift $ logTo "diversity.log" $ logWordDiversity' bitsUsed
+  return $ logTo "diversity.log" $ logWordDiversity' bitsUsed
 
 logWordDiversity' :: Int -> Pipe Pop32 String (SafeT IO) r
 logWordDiversity' bitsUsed = do
@@ -166,24 +151,31 @@ logWordDiversity' bitsUsed = do
       yield $ show diverse ++ "\n"
       loop
 
-logTo :: (MonadSafe m, MonadIO m) => FilePath -> Pipe a String m () -> Pipe a a m ()
-logTo fileName pipe = do
-  --hd <- liftIO $ openFile fileName WriteMode
-  P.tee $ pipe >-> P.map fromString >-> PS.writeFile fileName
+--logTo ::
+--  (MonadSafe m, MonadIO m, Base m ~ IO) =>
+--  FilePath -> Pipe a String m () -> Pipe a a m ()
+logTo ::
+  FilePath ->
+  Pipe a String (SafeT IO) () -> Pipe a a (RVarT (SafeT IO)) ()
+logTo fileName pipe =
+  hoist lift $ Safe.bracket (liftIO $ openFile fileName WriteMode)
+               (liftIO . hClose)
+               (\h -> P.tee $ pipe >-> P.map fromString >-> P.toHandle h)
 
 {- Flow Control -}
-gensBlock :: Block a a
+gensBlock :: Block a (Either a a)
 gensBlock = do
   gens <- lookupConfig (error "generations not provided") "gens"
   return (go gens) where
-    go :: Int -> Pipe a a (RVarT m) ()
-    go 0 = return ()
+    go :: Int -> Pipe a (Either a a) (RVarT m) ()
     go n = do
       a <- await
-      yield a
+      yield $ if n == 0 then Right a else Left a
       go (n-1)
 
-asyncLog :: (MonadIO m) => FilePath -> Pipe a String IO () -> Pipe a a m ()
+asyncLog ::
+  (MonadIO m) =>
+  FilePath -> Pipe a String IO () -> Pipe a a m ()
 asyncLog fileName pipe = do
   (output, input) <- liftIO $ spawn Unbounded
   let outPipe = toOutput output
@@ -278,8 +270,7 @@ collect n = forever $ do
   collected <- S.fromList <$> (T.sequence . replicate n $ await)
   yield collected
 
-onElementsP :: (Monad m) => Pipe a a m () -> Pipe (S.Seq a) (S.Seq a) m ()
-onElementsP pipe = forever $ do
-  as <- await
-  each as >-> pipe >-> collect (S.length as)
+onElementsP :: (Monad m) => Int -> Pipe a a m r -> Pipe (S.Seq a) (S.Seq a) m r
+onElementsP size pipe = forever $ do
+  for cat each >-> pipe >-> collect size
 

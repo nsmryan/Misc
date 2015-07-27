@@ -2,8 +2,6 @@
 module PointMutation where
 
 import qualified Data.Sequence as S
-import qualified Data.Vector as V
-import Data.Random.Lift
 import Data.Bits
 import qualified Data.Traversable as T
 import Data.Random
@@ -12,7 +10,6 @@ import Pipes as P
 import Pipes.Safe
 
 import Control.Applicative
-import Control.Monad.IO.Class
 import Control.Monad
 
 import UtilsRandom
@@ -109,19 +106,18 @@ data PMChunk f a = PMPiece (f a)
 
 pmBlock :: Block Pop32 Pop32
 pmBlock = do
-  pm <- lookupConfig 0.001 "pm"
+  pm <- lookupConfig 0.01 "pm"
   ps <- lookupConfig (error "population size not provided") "ps"
   geneSize <- lookupConfig (error "gene size not provided") "bitsUsed"
   return $ pmPopulationP ps pm geneSize
 
 
-pmPopulationP :: Int -> Double -> Int -> Pipe Pop32 Pop32 (RVarT (SafeT IO)) r
-pmPopulationP ps pm geneSize = --locusP pm geneSize (pointMutationP pm geneSize)
-  (for cat each) >-> (pointMutationP pm geneSize) >-> (collect ps)
+pmPopulationP :: Int -> Double -> Int -> Pipe Pop32 Pop32 (RVarT (SafeT IO)) ()
+pmPopulationP ps pm geneSize = onElementsP ps (pointMutationP pm geneSize)
 
 --pointMutationP :: Double -> Int -> Pipe Ind32 Ind32 (RVarT m) r
-pointMutationP prob geneSize = --locusP prob geneSize pointMutationP'
-  probablyDeep prob geneSize >-> pointMutationP' >-> reconstitute
+pointMutationP prob geneSize =
+  probablyDeep prob geneSize >-> mutateLocusP mutateLocus >-> reconstitute
 
 
 probablyDeep prob locationSize = do
@@ -156,10 +152,42 @@ processPiece prob geneSize locusLoc gene ls = do
       yield $ PMLocation gene (locusLoc:ls)
       return $ loc'-left
 
-pointMutationP' = forever $ do
+{- Redone mutation. Should replace other operators with these -}
+--for each >-> singleOut p >-> mutateLocusP mutateLocus >-> reconstitute
+
+singleOut p =
+  forever $ singleOutWith p Nothing Nothing
+
+singleOutWith p maybeIndex maybeAs = do
+  index <- case maybeIndex of
+             Nothing -> lift $ geo0 p
+             Just i -> return i
+  as <- case maybeAs of
+          Nothing -> await
+          Just someAs -> return someAs
+  if index >= (S.length as)
+     then do yield (PMPiece as) >> yield PMFlush
+             singleOutWith p (Just (index - S.length as)) Nothing
+     else let (front, back) = S.splitAt index as
+              locus = S.index back 0
+              remaining = S.drop 1 back
+           in do yield $ PMPiece front
+                 yield $ PMLocation locus [index]
+                 singleOutWith p Nothing (Just remaining)
+
+mutateLocusPM f = forever $ do
   chunk <- await
   case chunk of
-    PMLocation a is -> do
-      yield . Location . mutateLocus is $ a
+    PMLocation a indices -> do
+      a' <- lift $ f indices a
+      yield $ Location a'
     PMPiece piece -> yield . Piece $ piece
     PMFlush -> yield Flush
+
+mutateLocusPM' f = mutateLocusP (const f)
+
+mutateLocusP f = mutateLocusPM (\is a -> return $ f is a)
+
+mutateLocusP' f = mutateLocusP (\is a -> f a)
+
+
