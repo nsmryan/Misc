@@ -319,7 +319,7 @@ rgep ::
   Prob   -> -- tournament selection prob
   Int    -> -- generations
   a      -> -- default value
-  (a     -> RVarT m Double)              -> --fitness function
+  (a     -> RVarT m Double) -> --fitness function
   RVarT m (Pop (RGEPEval a))
 rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
   let bits = bitsUsed ops
@@ -330,10 +330,10 @@ rgep ps is ops pm pr pc1 pc2 pt gens def eval = do
       loop gens pop = do
         popEvaled <- evaluator pop
         popSelected <- elitism 1 (stochasticTournament pt) popEvaled
-        popCrossed1 <- singlePointCrossoverM is ps pc1 popSelected
-        popCrossed2 <- multipointCrossoverM pc2 2 popCrossed1
-        popMutated <- pointMutation pm is 1 popCrossed2
-        popRotated <- rotation pr popMutated
+        popCrossed1 <- crossover1 pc1 is ps popSelected
+        popCrossed2 <- multipointCrossover pc2 2 is ps popCrossed1
+        popMutated <- pointMutationBits pm bits is ps popCrossed2
+        popRotated <- rotation pr is ps popMutated
         loop (pred gens) popRotated
     in do
           finalPopulation <- loop gens pop

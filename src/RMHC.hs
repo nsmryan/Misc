@@ -28,7 +28,7 @@ rmhc is bits gens mutRate eval = do
 
         genes' <-
           (flip S.index 0) <$>
-          (pointMutation mutRate is bits $ S.singleton genes)
+          (pointMutationBits mutRate bits is 1 $ S.singleton genes)
 
         fitness' <- eval genes'
         --printf $ "fitness = " ++ show fitness'

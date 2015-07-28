@@ -21,12 +21,6 @@ import PipeOperators
 
 
 {- Tournament Selection -}
-seqToVect :: S.Seq a -> V.Vector a
-seqToVect = V.fromList . F.toList
-
-vectToSeq :: V.Vector a -> S.Seq a
-vectToSeq = S.fromList . F.toList
-
 tournamentSelectionPure ::
   [[Int]] -> Pop (Evaled a b) -> Pop a
 tournamentSelectionPure competitors population =

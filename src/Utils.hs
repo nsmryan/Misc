@@ -3,6 +3,7 @@ module Utils where
 
 import qualified Data.Sequence as S
 import qualified Data.Foldable as F
+import qualified Data.Vector as V
 
 import Control.Applicative
 import Control.Monad.State.Lazy
@@ -38,6 +39,13 @@ puts f = do
 
 smap :: (a -> b) -> S.Seq a -> S.Seq b
 smap = fmap
+
+seqToVect :: S.Seq a -> V.Vector a
+seqToVect = V.fromList . F.toList
+
+vectToSeq :: V.Vector a -> S.Seq a
+vectToSeq = S.fromList . F.toList
+
 
 
 compareFitnesses = compare `on` fitness
@@ -85,103 +93,3 @@ diversity' n dss =
       len = fromIntegral n
   in
     sum $ map (\(ds, c) -> sum $ map (\a -> (a-c)^2) ds) $ zip transposed centroids
-
-{- Efficient application of genetic operators -}
---should use mono-traversable and sequence
-
-
-skipping n = do
-  ((i, b):is) <- get
-  if i == 0
-    then do
-      return 0
-    else do
-      let (skips, m) = divMod i n
-      put $ (m, b) : is
-      return $! skips
-
-putBack b i = modify ((i, b):)
-
-takeUnder n = takeUnder' 0 where
-  takeUnder' acc = do
-    ias <- get
-    let i = fst . head $ ias
-    let acc' = acc + i
-    if null ias || (acc' >= n)
-      then return []
-      else do
-        modify tail
-        is <- takeUnder' $ 1 + acc'
-        return (acc' : is)
-
-open = downOne . zipper
-close = unzipper . upOne
-
---t s n = trace (s ++ show n) n
---t s n = n
-
-type IxSupply = State [Int]
-
---applyMOn ::
---  Int ->
---  (a -> IxSupply a) ->
---  S.Seq a ->
---  IxSupply (S.Seq a)
-applyMOn :: (Functor m, Monad m, MonadState m, StateType m ~ [(Int, b)]) =>
-  Int ->
-  (b -> a -> m a) ->
-  S.Seq a ->
-  m (S.Seq a)
-applyMOn n f as =
-  close <$> (go (open as)) where
-    go as = do
-      is <- get
-      if null is || (1 + remainingRight as == 0)
-        then return as
-        else do
-          (_, b) <- gets head
-          i <- skipping n
-          let remaining = remainingRight as
-          as' <- modifyWithM (zipRight i as) (f b)
-          case compare i (remaining * n) of
-            LT -> go $ skipOne as'
-            EQ -> return as'
-            GT -> do
-              putBack b $! (i - remaining - 1)
-              return $! as
-
--- each location, with given location size.
-applyOn n f is as = evalState (applyMOn n f' as) is where
-  f' b a = do
-    modify tail
-    return $ f b a
-
-applyOnEach f is as = applyOn 1 f is as
-
-applyFuncs n is as = applyOn n ($) is as
-applyFtoIx n fs is as = applyOn n ($) (zip is fs) as
-
--- 1 layer down, locus size = 1
-applyOnLocus n is as = evalState (applyMOn n f' as) is where
-  f' _ as' = applyMOn 1 f'' as'
-  f'' b a = do
-    modify tail
-    return $ b a
-
--- 1 layer down, with given locus size
-applyWithinLocus n m f is as = evalState (applyMOn (n*m) f' as) is' where
-  is' = map (flip (,) ()) is
-  f' _ as' = applyMOn m f'' as'
-  f'' _ a = do
-    ixs <- takeUnder m
-    return $! f ixs a
-
--- apply function taking index from list
-applyIxOn n f is as = evalState (applyMIxOn n f as) is where
-
--- monadic appyly with function taking index
-applyMIxOn n f as = applyMOn n f' as where
-  f' a = do
-    (i, b) <- gets head
-    return (f i b a)
-

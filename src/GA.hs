@@ -30,8 +30,8 @@ geneticAlgorithm ps is gens pm pc expr eval = do
         popExpressed <- return $ expressPopWith expr pop
         popEvaled <- evaluationM eval popExpressed
         popSelected <- tournamentSelection 2 popEvaled
-        popCrossed <- singlePointCrossoverM is ps pc popSelected
-        popMutated <- pointMutation pm is oneBit popCrossed
+        popCrossed <- crossover1 pc is ps popSelected
+        popMutated <- pointMutationBits pm oneBit is ps popCrossed
         loop (pred gens) popMutated
     in
       do finalPopulation <- loop gens initialPopulation

@@ -130,6 +130,7 @@ processRGEP ops defaul fitnessFunction config = do
     mutation       <- pmBlock
     crossover1     <- crossoverBlock
     crossover2     <- (multipointCrossoverBlock 2)
+    geoCrossover   <- geoCrossoverBlock
     selection      <- tournamentBlock
     rotation       <- rotationBlock
     expressionPipe <- (rgepExpressionBlock ops defaul)
@@ -137,10 +138,10 @@ processRGEP ops defaul fitnessFunction config = do
     generations    <- gensBlock
     logFitnessPipe <- logFitness
 
-    let mainPipe = selection >-> rotation >-> mutation >-> crossover1 >-> crossover2
-    elitism        <- elitismBlock 1 mainPipe
-    let pipe = (expressionPipe >-> fitnessPipe >-> logFitnessPipe >->
-                elitism >-> generations)
+    let mainPipe = selection >-> rotation >-> mutation >-> geoCrossover
+    elitism <- elitismBlock 1 mainPipe
+    let pipe = (expressionPipe >-> fitnessPipe >->
+                logFitnessPipe >-> elitism >-> generations)
     let evalPipe = expressionPipe >-> fitnessPipe
     return (pipe, evalPipe)
 

@@ -3,11 +3,13 @@ module Rotation where
 
 import qualified Data.Sequence as S
 import Data.Random
---import Data.Conduit
+import Data.Tree
 
 import Control.Monad
+import Control.Applicative
 
 import Pipes
+import Pipes.Prelude as PP
 
 import PipeOperators
 import Types
@@ -21,41 +23,28 @@ rotateIndividual rotationPoint ind = let
    in bottom S.>< top
 
 rotationPure ::
-  [Int] ->
-  [Int] ->
+  Forest Int ->
   (Pop (Ind a)) ->
   (Pop (Ind a))
-rotationPure indices rotationPoints pop =
-  applyOnEach ($) (zip indices rotations) pop where
-    rotations = map rotateIndividual rotationPoints
+rotationPure rotationPoints pop =
+  seqLayer (rotateIndividual . rootLabel . (!!0)) rotationPoints pop
+
+rotationGenerate pr is ps =
+  generateTree pr $ layer (singleIndex (1/fromIntegral is)) is ps
 
 rotation ::
   (Monad m) =>
   Prob ->
+  Int ->
+  Int ->
   (Pop (Ind a)) ->
   RVarT m (Pop (Ind a))
-rotation pr pop = let
-  popLen = S.length pop
-  indLen = S.length $ pop `S.index` 0
-    in do
-      indices <- generateIndices popLen pr
-      rotationPoints <- replicateM (length indices) (fromRange indLen)
-      return $ rotationPure indices rotationPoints pop
+rotation pr is ps pop = rotationPure <$> (rotationGenerate pr is ps) <*> return pop
 
 rotationBlock :: Block Pop32 Pop32
 rotationBlock = do
   pr <- lookupConfig (0.02 :: Double) "pr"
   is <- lookupConfig (error "individual size was not provided") "is"
   ps <- lookupConfig (error "population size was not provided") "ps"
-  return $ rotationP pr is ps
-
-rotationP prob indLength popSize =
-  for cat each >->
-  withP prob >->
-  whenChosen (rotateOp indLength) >->
-  collect popSize
-
-rotateOp indLength individual = do
-  rotationPoint <- uniformT 0 (indLength-1)
-  return $ rotateIndividual rotationPoint individual
+  return $ PP.mapM (rotation pr is ps)
 

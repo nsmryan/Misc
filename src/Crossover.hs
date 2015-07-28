@@ -7,11 +7,12 @@ import Data.Monoid
 import Data.Random
 import Data.String
 import Data.Maybe
+import Data.Tree
 
 import Control.Monad
 import Control.Applicative
 
-import qualified Pipes.Prelude as P
+import qualified Pipes.Prelude as PP
 import Pipes
 
 import Types
@@ -20,8 +21,7 @@ import UtilsRandom
 import Common
 import PipeOperators
 
-{- Crossover -}
---pure crossover of two individuals
+{- Crossover Utilities -}
 crossPair crossPoint (a, b) =
   (top S.>< bottom', top' S.>< bottom) where
     (top,  bottom)  = S.splitAt crossPoint a
@@ -29,41 +29,6 @@ crossPair crossPoint (a, b) =
 
 unpair = uncurry (S.><) . (fmap fst &&& fmap snd)
 
---pure single point crossover of populations
-singlePointCrossover ::
-  [Int] -> [Int] -> Pop (Ind a) -> Pop (Ind a)
-singlePointCrossover indices crossPoints population = let
-  pairs = foldInHalf population
-  crossedPairs = applyOnEach ($) (zip indices (map crossPair crossPoints)) pairs
-  in unpair crossedPairs
-
-singlePointCrossoverM is ps p pop =
-  fromJust <$> P.last (yield pop >-> singlePointCrossoverP is ps p)
-
---Singlepoint Crossover of a population
-singlePointCrossoverP ::
-  (Monad m) =>
-  Int -> Int -> Prob -> Pipe (Pop (Ind a)) (Pop (Ind a)) (RVarT m) r
-singlePointCrossoverP indLength popSize p =
-  for cat each >->
-  pairUpP >->
-  withP p >->
-  whenChosen (singlePointCrossoverOP indLength) >->
-  unpairP >->
-  collect popSize
-
-singlePointCrossoverOP indLength paired = do
-  crossPoint <- fromRange indLength
-  return $ crossPair crossPoint paired
-
-crossoverBlock :: Block Pop32 Pop32
-crossoverBlock = do
-  pc <- lookForPC
-  is <- lookForIS
-  ps <- lookForPS
-  return $ singlePointCrossoverP is ps pc
-
-{- Multipoint crossover -}
 foldInHalf s = S.zip top bottom where (top, bottom) = S.splitAt (S.length s `div` 2) s
 
 exchange as bs = exchange' S.empty S.empty as bs
@@ -75,49 +40,69 @@ splits [] as = [as]
 splits (p:points) as = top : splits points bottom where
   (top, bottom) = S.splitAt p as
 
+{- One Point Crossover -}
+crossover1Pure::
+  Forest Int ->
+  Pop (Ind a) ->
+  Pop (Ind a)
+crossover1Pure crossPoints pop =
+  unpair $ seqLayer (crossPair . rootLabel . (!!0)) crossPoints $ foldInHalf pop
+
+singlePointCrossoverGenerate pc indLength popLength =
+  generateTree pc $ layer (singleIndex (1/fromIntegral indLength))
+                          indLength
+                          popLength
+
+crossover1 pc indLength popLength pop =
+  crossover1Pure <$> singlePointCrossoverGenerate pc indLength popLength <*> return pop
+
+crossoverBlock :: Block Pop32 Pop32
+crossoverBlock = do
+  pc <- lookForPC
+  is <- lookForIS
+  ps <- lookForPS
+  return $ PP.mapM (crossover1 pc is ps)
+
+{- Multipoint crossover -}
+
 -- Pure multipoint crossover of two individuals
 multicrossPair ixs (a, b) =
   let len = S.length a
       points = sort ixs
   in exchange (splits points a) (splits points b)
 
--- Pure multipoint crossover
-multipointCrossover ::
-  [Int] -> [[Int]] -> Pop (Ind a) -> Pop (Ind a)
-multipointCrossover crossIndices crossPoints pop = let
-  pairs = foldInHalf pop
-  result = applyOnEach ($) (zip crossIndices (map multicrossPair crossPoints)) pairs
-  in unpair result
+multiCrossoverPure ::
+  Forest Int ->
+  Pop (Ind a) ->
+  Pop (Ind a)
+multiCrossoverPure crossPoints pop =
+  unpair $ seqLayer (multicrossPair . map rootLabel) crossPoints $ foldInHalf pop
 
--- Multipoint crossover
-multipointCrossoverM ::
-  (Monad m) =>
-  Prob        -> --probability of crossover
-  Int         -> --number of cross points
-  Pop (Ind a) -> --population to crossover
-  RVarT m (Pop (Ind a))
-multipointCrossoverM pc points pop = do
-  let indLen = S.length $ pop `S.index` 0
-      popLen = S.length pop
-  indices <- generateIndices (popLen `div` 2) pc
-  points <- replicateM popLen $ replicateM points (fromRange indLen)
-  return $ multipointCrossover indices points pop
+multiPointCrossoverGenerate numCrossPoints pc indLength popLength =
+  generateTree pc $ layer (nIndices numCrossPoints) indLength popLength
 
--- MultiPoint Crossover
+multipointCrossover prob numCrossPoints indLength popLength pop =
+  multiCrossoverPure <$> multiPointCrossoverGenerate numCrossPoints prob indLength popLength <*> return pop
+
 multipointCrossoverBlock :: Int -> Block Pop32 Pop32
 multipointCrossoverBlock points = do
-  pc <- lookupConfig 0.06 $ "pc" <> (fromString $ show points)
-  return . P.mapM $ multipointCrossoverM pc points
-  --return $ crossoverMultipointP pc is points
+  is <- lookForIS
+  ps <- lookForPS
+  pc <- lookForPC
+  return $ PP.mapM (multipointCrossover pc points is ps)
 
---crossoverMultipointP prob indLength points =
---  onElementsP (onPairsP (probably prob >-> crossoverMultiP' indLength points >-> reconstitute))
---
---
---crossoverMultiP' indLength points = do
---  chunk <- await
---  case chunk of
---    Location pair -> do
---      crossPositions <- lift $ replicateM points $ uniformT 0 (indLength-1)
---      yield . Location . multicrossPair crossPositions $ pair
---    a -> yield a
+{- Geometric Crossover -}
+geometricCrossoverGenerate pc pg indLength popLength =
+  generateTree pc $ layer (indicesLayer pg) indLength popLength
+
+geometricCrossover pc pg indLength popLength pop =
+  multiCrossoverPure <$> geometricCrossoverGenerate pg pc indLength popLength <*> return pop
+
+geoCrossoverBlock :: Block Pop32 Pop32
+geoCrossoverBlock = do
+  is <- lookForIS
+  ps <- lookForPS
+  pc <- lookForPC
+  pg <- lookupConfig (geo0FromN (fromIntegral is/5)) $ "pg"
+  return $ PP.mapM (geometricCrossover pc pg is ps)
+
